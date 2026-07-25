@@ -53,6 +53,7 @@ class AppConfig:
         class ProviderCatalog:
             def __init__(self, data):
                 self.available = data.get("available", [])
+                self.reasoning_effort = data.get("reasoning_effort", "medium")
 
         def __init__(self, data):
             # Model active cho router và qa
@@ -71,6 +72,11 @@ class AppConfig:
                 "openrouter": self.openrouter.available
             }
 
+    class Agent:
+        def __init__(self, data):
+            self.max_turns = data.get("max_turns", 5)
+            self.max_attempts = data.get("max_attempts", 3)
+
     class Embedding:
         def __init__(self, data):
             self.available = data.get("available", [])
@@ -80,6 +86,7 @@ class AppConfig:
         self.chunking = self.Chunking(raw_yaml.get("chunking", {}))
         self.retrieval = self.Retrieval(raw_yaml.get("retrieval", {}))
         self.generation = self.Generation(raw_yaml.get("generation", {}))
+        self.agent = self.Agent(raw_yaml.get("agent", {}))
         self.llm = self.LLM(raw_yaml.get("llm", {}))
         self.embedding = self.Embedding(raw_yaml.get("embedding", {}))
 

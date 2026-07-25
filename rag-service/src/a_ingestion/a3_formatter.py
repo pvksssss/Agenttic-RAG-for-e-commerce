@@ -50,10 +50,6 @@ class DataFormatter:
         original_price_text = f"{price_val:,.0f} VNĐ" if price_val > 0 else "Liên hệ"
         discount_text = f"{discount_val}%" if discount_val > 0 else "Không giảm giá"
         
-        # Stock status
-        stock = prod.get("stock", 0)
-        stock_text = f"Còn hàng ({stock} sản phẩm)" if stock > 0 else "Hết hàng"
-        
         # 2. Parse and clean technical specifications (specs)
 
         # Get specs from the nested specs field, if nested specs is empty, get from level-1 specs
@@ -125,8 +121,6 @@ class DataFormatter:
         # Product key selling points
         key_selling_points = prod.get("key_selling_points") or None
 
-        # Detailed product description (summary)
-        description = prod.get("description") or None
 
         # ---------------- Laptop-specific fields
         # Get keyboard backlight type
@@ -229,7 +223,7 @@ class DataFormatter:
         unified_text_parts = [
             f"Sản phẩm: {name}",
             f"Thương hiệu: {brand} | Danh mục: {category}",
-            f"Thông tin giá & Kho hàng:\n- Giá thực tế: {price_text}\n- Giá gốc niêm yết: {original_price_text}\n- Mức giảm giá: {discount_text}\n- Tình trạng: {stock_text}"
+            f"Thông tin giá:\n- Giá thực tế: {price_text}\n- Giá gốc niêm yết: {original_price_text}\n- Mức giảm giá: {discount_text}"
         ]
         
         if specs_text:
@@ -238,9 +232,7 @@ class DataFormatter:
         if key_selling_points and key_selling_points.strip():
             unified_text_parts.append(f"Đặc điểm nổi bật:\n{key_selling_points.strip()}")
             
-        if description and description.strip():
-            unified_text_parts.append(f"Mô tả chi tiết sản phẩm:\n{description.strip()}")
-            
+
         # Nối tất cả các phần lại bằng dấu xuống dòng kép
         return "\n\n".join(unified_text_parts)
 

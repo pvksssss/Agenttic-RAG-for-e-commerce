@@ -4,11 +4,25 @@ class LLMService:
     def __init__(self, settings, config):
         self.settings = settings
         self.config = config
+        self._groq_client = None
+        self._gemini_client = None
+
+    def _get_groq_client(self):
+        """Khởi tạo lười (Lazy) Groq client và giữ kết nối socket bền vững."""
+        if self._groq_client is None:
+            from groq import Groq
+            self._groq_client = Groq(api_key=self.settings.GROQ_API_KEY)
+        return self._groq_client
+
+    def _get_gemini_client(self):
+        """Khởi tạo lười (Lazy) Gemini client và giữ kết nối socket bền vững."""
+        if self._gemini_client is None:
+            from google import genai
+            self._gemini_client = genai.Client(api_key=self.settings.GEMINI_API_KEY)
+        return self._gemini_client
 
     def call_groq(self, model, messages: list, tools: list = None):
-        from groq import Groq
-
-        client = Groq(api_key=self.settings.GROQ_API_KEY)
+        client = self._get_groq_client()
 
         kwargs = {
             "model": model,
@@ -16,72 +30,120 @@ class LLMService:
             "temperature": self.config.generation.temperature,
             "max_completion_tokens": self.config.generation.max_tokens,
             "top_p": self.config.generation.top_p,
-            "reasoning_effort": self.config.generation.reasoning_effort,
+            "reasoning_effort": self.config.llm.groq.reasoning_effort,
             "stream": self.config.generation.stream,
             "stop": self.config.generation.stop
         }
 
         if tools:
-            kwargs["tools"] = tools
-            # TODO: Sau này nếu cần ép buộc gọi tool ("required"), tắt gọi tool ("none"),
-            # hoặc chỉ định đích danh hàm cụ thể, hãy mở lại tham số tool_choice ở signature
-            # và uncomment 2 dòng dưới đây để truyền lên API Groq.
-            # if tool_choice:
-            #     kwargs["tool_choice"] = tool_choice
+            formatted_tools = []
+            for tool in tools:
+                if "type" not in tool:
+                    formatted_tools.append({
+                        "type": "function",
+                        "function": tool
+                    })
+                else:
+                    formatted_tools.append(tool)
+            kwargs["tools"] = formatted_tools
 
         completion = client.chat.completions.create(**kwargs)
         return completion
 
-    def _extract_system_instruction(self, messages: list) -> Optional[str]:
-        """
-        Gom toàn bộ system prompt thành một chuỗi.
-        Gemini sử dụng system_instruction thay vì message role="system".
-        Trả về None nếu không có system message để tránh lỗi validation API Gemini.
-        """
-        system_messages = [
-            msg["content"]
-            for msg in messages
-            if msg.get("role") == "system"
-            and msg.get("content")
-        ]
+    @staticmethod
+    def _normalize_msg(msg) -> dict:
+        """Chuẩn hóa cả Python dict và LangChain Message Object (HumanMessage, AIMessage...)."""
+        if isinstance(msg, dict):
+            return msg
+        # LangChain Object: type = "human" | "ai" | "system" | "tool"
+        role_map = {"human": "user", "ai": "assistant", "system": "system", "tool": "tool"}
+        return {
+            "role": role_map.get(getattr(msg, "type", ""), getattr(msg, "type", "")),
+            "content": getattr(msg, "content", ""),
+            "name": getattr(msg, "name", None),
+            "tool_calls": getattr(msg, "tool_calls", None),
+            "tool_call_id": getattr(msg, "tool_call_id", None),
+        }
 
+    def _extract_system_instruction(self, messages: list) -> Optional[str]:
+        system_messages = [
+            self._normalize_msg(m)["content"]
+            for m in messages
+            if self._normalize_msg(m).get("role") == "system"
+            and self._normalize_msg(m).get("content")
+        ]
         return "\n".join(system_messages) if system_messages else None
 
     def _to_gemini_contents(self, messages: list):
+        """
+        Convert lịch sử hội thoại chuẩn OpenAI (dùng chung cho Groq và Gemini)
+        sang list[types.Content] cho Gemini, GIỮ NGUYÊN cả tool_calls và tool results
+        - khắc phục triệt để bug lặp vô hạn.
+        """
+        import json
         from google.genai import types
+
         contents = []
-        for msg in messages:
+        for raw in messages:
+            msg = self._normalize_msg(raw)
             role = msg.get("role")
-            text = msg.get("content")
-            # Gemini không nhận system trong contents
+
             if role == "system":
                 continue
-            # Không có content thì bỏ qua
-            if not text:
-                continue
-            # assistant -> model (đúng chuẩn Gemini)
-            if role == "assistant":
-                gemini_role = "model"
-            elif role == "user":
-                gemini_role = "user"
-            else:
-                # Sau này tool/function thì xử lý riêng
-                continue
-            contents.append(
-                types.Content(
-                    role=gemini_role,
-                    parts=[
-                        types.Part.from_text(text=text)
-                    ]
+
+            if role == "user":
+                text = msg.get("content")
+                if not text:
+                    continue
+                contents.append(types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=text)],
+                ))
+
+            elif role == "assistant":
+                parts = []
+                text = msg.get("content")
+                if text:
+                    parts.append(types.Part.from_text(text=text))
+
+                # Đọc đầy đủ các yêu cầu gọi tool của assistant
+                for tc in (msg.get("tool_calls") or []):
+                    fn = tc.get("function", {})
+                    raw_args = fn.get("arguments", "{}")
+                    args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                    part = types.Part.from_function_call(
+                        name=fn.get("name"),
+                        args=args,
+                    )
+                    # Giữ nguyên thought_signature nếu có (bắt buộc đối với các model Gemini 3.x/Thinking)
+                    sig = tc.get("thought_signature") or fn.get("thought_signature")
+                    if sig:
+                        part.thought_signature = sig
+                    parts.append(part)
+
+                if not parts:
+                    continue
+
+                contents.append(types.Content(role="model", parts=parts))
+
+            elif role == "tool":
+                part = types.Part.from_function_response(
+                    name=msg.get("name"),
+                    response={"result": msg.get("content", "")},
                 )
-            )
+                # Trong Gemini SDK, FunctionResponse bắt buộc phải mang role="user"!
+                # Nếu Content liền trước cũng chứa function_response (gọi song song), gộp part vào đó.
+                if contents and contents[-1].role == "user" and contents[-1].parts and hasattr(contents[-1].parts[0], "function_response"):
+                    contents[-1].parts.append(part)
+                else:
+                    contents.append(types.Content(role="user", parts=[part]))
+
+            else:
+                continue
+
         return contents
 
     def _map_thinking_level(self, reasoning_effort: Optional[str]) -> str:
-        """
-        Vấn đề 2: Chuyển đổi giá trị reasoning_effort của Groq/config.yaml
-        sang chuẩn thinking_level của Gemini ThinkingConfig (phải viết HOA).
-        """
         mapping = {
             "none":    "NONE",
             "default": "MINIMAL",
@@ -89,7 +151,6 @@ class LLMService:
             "medium":  "MEDIUM",
             "high":    "HIGH",
         }
-        # Nếu giá trị đã là uppercase (như "HIGH", "MINIMAL"), giữ nguyên
         raw = (reasoning_effort or "default").strip().lower()
         return mapping.get(raw, "MINIMAL")
 
@@ -106,12 +167,18 @@ class LLMService:
             max_output_tokens=self.config.generation.max_tokens,
             top_p=self.config.generation.top_p,
             thinking_config=types.ThinkingConfig(
-                thinking_level=self._map_thinking_level(self.config.generation.reasoning_effort)
+                thinking_level=self._map_thinking_level(self.config.llm.google.reasoning_effort)
             ),
         )
 
         if tools:
-            generate_content_config.tools = tools
+            gemini_function_declarations = []
+            for t in tools:
+                if isinstance(t, dict) and "function" in t and "type" in t:
+                    gemini_function_declarations.append(t["function"])
+                else:
+                    gemini_function_declarations.append(t)
+            generate_content_config.tools = [types.Tool(function_declarations=gemini_function_declarations)]
 
         if system_instruction:
             generate_content_config.system_instruction = system_instruction

@@ -361,6 +361,24 @@ Hệ thống Agentic RAG được thiết kế theo mô hình đồ thị trạn
 
 > **Lưu ý quan trọng:** LLM **KHÔNG** tự viết SQL hay truy cập DB. Bạn viết sẵn các hàm Python (tools) có logic SQL/Chroma bên trong. LLM chỉ **chọn gọi tool nào** và **truyền tham số** (ví dụ: `order_lookup_tool(order_id="ORD-123")`). Tool chạy xong trả kết quả lại cho LLM tổng hợp câu trả lời. Đây là cơ chế **function calling** — cốt lõi của "Agentic" RAG.
 
+##### 2.3.3 Cơ chế Tích lũy Tool Calls và Bảo tồn Chữ ký Mật mã (`thought_signature`)
+
+Để xử lý các yêu cầu gọi hàm phức tạp và tương thích 100% với các mô hình suy luận thế hệ mới (như Gemini 3.6 Flash / Thinking Models), luồng xử lý tại Nút Agent (`MasterAgent`) thực hiện quy trình 4 bước chuẩn hóa trong vòng lặp duyệt Stream (`chunk`):
+
+1. **Tích lũy Tool Calls đa luồng (Parallel Tool Call Accumulation)**:
+   * Gom và tích lũy các yêu cầu gọi hàm trả về từ `chunk.function_calls` vào từ điển `tool_calls_dict` theo chỉ số `idx`.
+   * Hỗ trợ xử lý mượt mà khi LLM đưa ra nhiều quyết định gọi Tool song song trong cùng 1 lượt (Parallel Function Calling).
+2. **Bảo tồn Chữ ký Mật mã (`thought_signature`)**:
+   * Với các mô hình Gemini 3.x/Thinking, mỗi `Part` gọi hàm bao hàm một chuỗi byte chữ ký bảo mật (`thought_signature`) chứng minh quyết định gọi hàm xuất phát từ luồng suy luận nội bộ của mô hình.
+   * Agent tự động trích xuất chuỗi byte `thought_signature` này và đóng gói kèm vào `formatted_tool_calls` gửi lại cho API ở lượt kế tiếp, loại bỏ hoàn toàn lỗi `ClientError 400: Function call is missing a thought_signature`.
+3. **Chuyển đổi Lịch sử Hội thoại 2 Chiều (OpenAI ↔ Gemini Content Translation)**:
+   * Khi chuyển đổi lịch sử từ dạng OpenAI/Groq sang dạng Google Gemini (`list[types.Content]`):
+     * Các yêu cầu gọi hàm của `assistant` được đóng gói thành `Part.from_function_call(name=..., args=...)` kèm `thought_signature`.
+     * Kết quả thực thi của Tool (`role: "tool"`) được gộp chung vào 1 đối tượng `Content(role="user", parts=[...])` chứa các `Part.from_function_response(...)`, tuân thủ 100% quy định gom nhóm lượt gọi song song của Google Gemini SDK.
+4. **Trích xuất Chỉ số Benchmark (TTFT & Token Usage Metrics)**:
+   * Bấm giờ `TTFT` (Time to First Token) ngay khi mảnh chữ hoặc tool call đầu tiên xuất hiện.
+   * Trích xuất `usage_metadata` (`prompt_token_count` & `candidates_token_count`) từ chunk cuối cùng để phục vụ báo cáo đánh giá hiệu năng (Benchmark).
+
 #### Loại 1 — SQL trực tiếp (dữ liệu không nằm trong Chroma)
 
 Áp dụng cho: dữ liệu **riêng tư theo user** (đơn hàng, tài khoản) và **thao tác ghi** (tạo ticket, đánh giá).
@@ -732,7 +750,15 @@ So sánh:
    * Đồ thị rẽ nhánh sang các Sub-Agent chuyên trách từng miền (`product_agent`, `policy_agent`, `account_agent`).
 
 #### Bộ chỉ số đo đạc Benchmark (Benchmark Metrics):
-* **Tool-call Accuracy**: Tỷ lệ chọn đúng Tool + đúng định dạng tham số.
+* **First-Turn Tool-Call Accuracy (Tỷ lệ chọn đúng Tool ngay trong lần đầu tiên)**: 
+  * Đo đạc xem với một câu hỏi đầu vào, Agent có chọn **đúng 100% Tool cần thiết và đúng định dạng tham số ngay trong lượt đầu tiên (1-pass)** hay phải mất thêm lượt lặp sửa sai.
+* **Cross-Model Benchmark (So sánh hiệu năng giữa các Mô hình LLM)**:
+  * So sánh tỷ lệ First-Turn Tool Accuracy, Latency và Chi phí Token giữa các LLM tiêu biểu: `Gemini 1.5 Flash` vs `Gemini 1.5 Pro` vs `Claude 3.5 Haiku` vs `GPT-4o-mini`.
+* **Domain-Specific Accuracy Breakdown (Phân tích theo từng Miền Domain)**:
+  * Đánh giá chi tiết tỷ lệ gọi đúng tool phân theo 3 nhóm miền nghiệp vụ:
+    1. *Product Domain*: `product_search`, `product_compare`, `check_stock`.
+    2. *Policy Domain*: `policy_search`.
+    3. *Account Domain*: `order_lookup`.
 * **Latency (p50 / p95)**: Tổng thời gian phản hồi câu hỏi (giây) và số lượng lượt gọi LLM trung bình/câu hỏi.
 * **Cost (Token Consumption)**: Tổng số token tiêu thụ (Input + Output Tokens) cho từng câu hỏi.
 * **Faithfulness & Answer Relevancy (Đo bằng RAGAS / LLM-as-a-Judge)**: Đánh giá xem câu trả lời có bám sát dữ liệu RAG và trả lời đúng trọng tâm không.

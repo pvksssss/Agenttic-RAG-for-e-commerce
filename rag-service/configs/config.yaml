@@ -16,27 +16,30 @@ generation:
   temperature: 1.0
   max_tokens: 4096
   top_p: 1.0
-  reasoning_effort: medium # default/none for qwen 3.6 27b; low/medium/high for gpt oss 120b
   stream: True
-  stop: 
-
-
-
-# Catalog cấu hình chi tiết cho từng Model của mỗi nhà cung cấp
+  
+agent:
+  max_turns: 5       # Số lượt suy luận ReAct tối đa
+  max_attempts: 3    # Số lần retry khi gặp lỗi API
 
 llm:
   google:
+    reasoning_effort: "MINIMAL" # options: "none", "default", "low", "medium", "high"
     available:
+      - "gemini-3.5-flash-lite"
       - "gemini-3.1-flash-lite"
       - "gemma-4-26b-a4b-it"
+      - "gemma-4-31b-it"
     
   groq:
+    reasoning_effort: "none" # options: "none", "low", "medium", "high"
     available:
-      - "qwen/qwen3.6-27b"
       - "openai/gpt-oss-120b"
       - "openai/gpt-oss-20b"
-
+      - "qwen/qwen3.6-27b"
+      
   openrouter:
+    reasoning_effort: "medium"
     available:
       - "google/gemini-2.5-flash"
       - "meta-llama/llama-3.3-70b-instruct:free"
