@@ -40,16 +40,7 @@ class DataFormatter:
         name = prod.get("name", "Không rõ tên")
         brand = prod.get("brand", "Không rõ thương hiệu")
         category = prod.get("category", "Sản phẩm")
-        
-        # Format price display
-        price_val = prod.get("price")  or 0
-        final_price_val = prod.get("final_price") or prod.get("special_price") or price_val
-        discount_val = prod.get("discount") or 0
-        
-        price_text = f"{final_price_val:,.0f} VNĐ" if final_price_val > 0 else "Liên hệ"
-        original_price_text = f"{price_val:,.0f} VNĐ" if price_val > 0 else "Liên hệ"
-        discount_text = f"{discount_val}%" if discount_val > 0 else "Không giảm giá"
-        
+
         # 2. Parse and clean technical specifications (specs)
 
         # Get specs from the nested specs field, if nested specs is empty, get from level-1 specs
@@ -222,8 +213,7 @@ class DataFormatter:
         # Combine into large text paragraphs
         unified_text_parts = [
             f"Sản phẩm: {name}",
-            f"Thương hiệu: {brand} | Danh mục: {category}",
-            f"Thông tin giá:\n- Giá thực tế: {price_text}\n- Giá gốc niêm yết: {original_price_text}\n- Mức giảm giá: {discount_text}"
+            f"Thương hiệu: {brand} | Danh mục: {category}"
         ]
         
         if specs_text:

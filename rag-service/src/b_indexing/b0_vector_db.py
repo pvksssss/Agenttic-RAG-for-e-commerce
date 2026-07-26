@@ -60,3 +60,27 @@ class ChromaVectorDatabase:
             n_results=n_results,
             where=where
         )
+    
+    def get_all_documents(self, collection_name: str, limit: int = None) -> Dict[str, Any]:
+        """
+        Get all documents from a collection (for benchmark data generation).
+        
+        Args:
+            collection_name: Name of the collection
+            limit: Maximum number of documents to return (None = all)
+            
+        Returns:
+            Dict with keys: ids, documents, metadatas, embeddings
+        """
+        collection = self.get_or_create_collection(collection_name)
+        count = collection.count()
+        
+        if limit is not None:
+            count = min(count, limit)
+        
+        # Get all documents using get() with ids=None
+        result = collection.get(
+            limit=count if limit else None
+        )
+        
+        return result

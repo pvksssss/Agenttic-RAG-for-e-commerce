@@ -221,11 +221,14 @@ Dưới đây là danh sách đầy đủ các công cụ (Tools) được lập
 
 #### A. Nhóm Công cụ dành cho Khách hàng (Tìm kiếm & Tư vấn)
 
-##### 1. **`product_search(key_word, brand, min_price, max_price, limit)`**
-*   **Mô tả**: Tìm kiếm sản phẩm theo ngôn ngữ tự nhiên kết hợp lọc cứng.
-*   **Nguồn dữ liệu**: ChromaDB (`products_collection`) kết hợp Reranker và co giãn giới hạn động (Dynamic Limit Scaling).
-*   **Lý do có tool**: Giúp khách hàng tìm sản phẩm thông minh theo mô tả tự nhiên ("laptop mỏng nhẹ pin trâu") hoặc khoảng giá cụ thể, vượt trội hoàn toàn so với tìm kiếm từ khóa thông thường.
-*   **Usecase thực tế**: Khách hàng hỏi: *"Tìm cho tôi laptop HP mỏng nhẹ giá dưới 20 triệu"*.
+##### 1. **`product_search(queries, limit)`**
+*   **Mô tả**: Tìm kiếm sản phẩm theo ngôn ngữ tự nhiên kết hợp lọc cứng (Hybrid Filter - SQL trước, Semantic sau). 
+*   **Nguồn dữ liệu**: Supabase Postgres (lọc brand/giá trước) + ChromaDB (`products_collection`) kết hợp Reranker (tìm ngữ nghĩa trong tập đã lọc).
+*   **Lý do có tool**: Giúp khách hàng tìm sản phẩm thông minh theo mô tả tự nhiên ("laptop mỏng nhẹ pin trâu") kết hợp khoảng giá cụ thể. Hỗ trợ per-item filter để xử lý câu hỏi ghép trong 1 lượt gọi tool.
+*   **Usecase thực tế**: 
+    - Khách hàng hỏi: *"Tìm cho tôi laptop HP mỏng nhẹ giá dưới 20 triệu"* → 1 item với brand="HP", max_price=20000000
+    - Khách hàng hỏi: *"Tìm Dell dưới 20 triệu và Asus dưới 25 triệu"* → 2 item, mỗi item filter riêng
+    - Khách hàng hỏi: *"laptop mỏng nhẹ pin trâu"* → chỉ semantic search, không filter
 
 ##### 2. **`product_compare(product_names)`**
 *   **Mô tả**: So sánh thông số kỹ thuật chi tiết của 2-3 sản phẩm được chỉ định.
@@ -391,18 +394,23 @@ Những dữ liệu này không được embed vào Chroma vì: (1) thuộc về
 | `order_lookup_tool` | "Tôi đã mua gì tháng trước?" | SQL: `WHERE user_id = $user AND created_at > ...` |
 | `escalate_tool` | "Tôi muốn khiếu nại" | SQL INSERT vào `support_tickets` |
 
-#### Loại 2 — Vector search (dữ liệu đã embed sẵn trong Chroma)
+#### Loại 2 — Hybrid Search (SQL trước, Semantic sau - cho product_search)
 
-Áp dụng cho: **tất cả câu hỏi về sản phẩm** (kể cả hỏi cụ thể giá/giảm giá) và **chính sách**.
+Áp dụng cho: **câu hỏi về sản phẩm có điều kiện cứng (brand, giá) kết hợp mô tả ngữ nghĩa**.
 
-Vì text embed trong Chroma đã chứa đầy đủ thông tin (tên, giá, giảm giá, specs, mô tả...), nên câu hỏi cụ thể ("S22 bao nhiêu tiền?") cũng được vector search xử lý tốt — nó tìm đúng sản phẩm S22, LLM đọc context và trích xuất giá.
+Sử dụng Hybrid Filter: Query Supabase trước để lọc theo brand/giá, sau đó semantic search trong tập đã lọc. Điều này đảm bảo:
+- Lọc chính xác theo điều kiện cứng (SQL exact match)
+- Tìm ngữ nghĩa trong tập đã lọc (semantic search)
+- Hỗ trợ per-item filter cho câu hỏi ghép
 
 | Tool | Câu hỏi ví dụ | Cách xử lý |
 |---|---|---|
-| `product_search_tool` | "Laptop mỏng nhẹ pin trâu" | Chroma: tìm ngữ nghĩa, trả top-5 |
-| `product_search_tool` | "Samsung S22 bao nhiêu tiền?" | Chroma: tìm đúng S22, LLM đọc giá từ context |
-| `product_search_tool` | "S22 có giảm giá không?" | Chroma: tìm S22, LLM đọc discount từ context |
-| `product_compare_tool` | "So sánh iPhone 15 và S24" | Chroma: tìm 2 SP, LLM so sánh specs |
+| `product_search_tool` | "Laptop mỏng nhẹ pin trâu" | Không filter → Semantic search toàn catalog |
+| `product_search_tool` | "Laptop HP dưới 20 triệu" | SQL lọc brand=HP, max_price=20M → Semantic search trong candidate_ids |
+| `product_search_tool` | "Laptop Asus mỏng nhẹ pin trâu dưới 25 triệu" | SQL lọc brand=Asus, max_price=25M → Semantic rerank "mỏng nhẹ pin trâu" |
+| `product_search_tool` | "Tìm Dell dưới 20 triệu và Asus dưới 25 triệu" | 2 item, mỗi item filter riêng → 1 lượt tool call xử lý cả 2 |
+| `product_search_tool` | "Samsung S22 bao nhiêu tiền?" | Semantic search → Query Supabase lấy price info nếu need_price_info=True |
+| `product_compare_tool` | "So sánh iPhone 15 và S24" | Semantic search lấy IDs → Batch query Supabase lấy giá cho cả batch |
 | `policy_rag_tool` | "Chính sách đổi trả thế nào?" | Chroma: tìm chunk chính sách liên quan |
 
 > **Tại sao câu hỏi cụ thể cũng dùng vector?** Vì text embed đã bao gồm tất cả info sản phẩm. Khi hỏi "S22 bao nhiêu tiền?", vector search match "S22" → trả về document chứa `"... Giá: 16,000,000đ. Giảm giá: 5%..."` → LLM trích xuất thông tin cần thiết. Không cần SQL riêng cho câu hỏi kiểu này.

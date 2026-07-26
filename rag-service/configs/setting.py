@@ -19,6 +19,8 @@ class Settings(BaseSettings):
 
     # 3. LLM API Keys
     GEMINI_API_KEY: str = ""
+    GEMINI_API_KEY_2: str = ""
+    GEMINI_API_KEY_3: str = ""
     GROQ_API_KEY: str = ""
     OPENROUTER_API_KEY: str = ""
 

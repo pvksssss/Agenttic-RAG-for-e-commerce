@@ -15,10 +15,18 @@ class BaseRetriever:
         self.embedding_service = EmbeddingService(config=config, settings=settings)
         self.rerank_service = RerankService(config=config, settings=settings)
 
-    def retrieve(self, query_text: str, brand: str = None, min_price: float = None, max_price: float = None, limit: int = None) -> list:
+    def retrieve(self, query_text: str, brand: str = None, min_price: float = None, max_price: float = None, limit: int = None, product_ids: list = None) -> list:
         """
         Receive raw query from user, build dynamic metadata filters, query ChromaDB, and Rerank.
         Supports dynamic adjustment of result sizes based on requested limit.
+        
+        Args:
+            query_text: The search query text
+            brand: Filter by brand (legacy, use product_ids instead for new flow)
+            min_price: Filter by minimum price (legacy, use product_ids instead for new flow)
+            max_price: Filter by maximum price (legacy, use product_ids instead for new flow)
+            limit: Maximum number of results to return
+            product_ids: List of product IDs to filter by (from Supabase pre-filtering)
         """
         # Step 1: Dynamically scale query and rerank limits if requested limit exceeds config defaults
         k_rerank_active = self.k_rerank
@@ -30,7 +38,8 @@ class BaseRetriever:
             k_query_active = max(limit * 3, self.k_query)
 
         # Step 2: Build dynamic where clause for ChromaDB metadata filtering
-        where_clause = self._build_where_clause(brand, min_price, max_price)
+        # Priority: product_ids (new flow) > brand/min_price/max_price (legacy)
+        where_clause = self._build_where_clause(brand, min_price, max_price, product_ids)
 
         # Step 3: Convert query to Vector Embedding
         query_vector = self.embedding_service.get_embedding(query_text)
@@ -68,16 +77,22 @@ class BaseRetriever:
 
         return final_documents
 
-    def _build_where_clause(self, brand: str, min_price: float, max_price: float) -> dict:
+    def _build_where_clause(self, brand: str = None, min_price: float = None, max_price: float = None, product_ids: list = None) -> dict:
         """Build dynamic where filter dictionary according to ChromaDB filter specs."""
         conditions = []
-        if brand:
-            # Case-insensitive / exact brand match
-            conditions.append({"brand": {"$eq": brand}})
-        if min_price is not None:
-            conditions.append({"price": {"$gte": min_price}})
-        if max_price is not None:
-            conditions.append({"price": {"$lte": max_price}})
+        
+        # Priority 1: Filter by product_ids (new flow from Supabase pre-filtering)
+        if product_ids:
+            conditions.append({"id": {"$in": product_ids}})
+        else:
+            # Priority 2: Legacy filters (brand, min_price, max_price)
+            if brand:
+                # Case-insensitive / exact brand match
+                conditions.append({"brand": {"$eq": brand}})
+            if min_price is not None:
+                conditions.append({"price": {"$gte": min_price}})
+            if max_price is not None:
+                conditions.append({"price": {"$lte": max_price}})
 
         if len(conditions) > 1:
             return {"$and": conditions}

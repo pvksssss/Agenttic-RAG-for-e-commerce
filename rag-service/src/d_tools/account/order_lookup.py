@@ -3,7 +3,7 @@ import json
 from app.core.security import supabase_admin_client, get_user_supabase_client
 
 def order_lookup(
-    current_user_id: str, 
+    current_user_id: str = None, 
     user_token: Optional[str] = None, 
     order_id: Optional[str] = None
 ) -> str:
@@ -19,7 +19,7 @@ def order_lookup(
     """
     try:
         if not current_user_id:
-            return "Error: User is not authenticated. Please log in to view your orders."
+            return "System notification: The user is currently unauthenticated. Please politely instruct the user to log in or authenticate their account to view order details."
             
         # 1. Choose Supabase Client based on authentication token
         # Dual-layer security: 

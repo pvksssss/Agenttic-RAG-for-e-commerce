@@ -154,7 +154,7 @@ class LLMService:
         raw = (reasoning_effort or "default").strip().lower()
         return mapping.get(raw, "MINIMAL")
 
-    def call_gemini(self, model, messages: list, tools: list = None):
+    def call_gemini(self, model, messages: list, tools: list = None, stream: bool = None):
         from google.genai import types
 
         client = self._get_gemini_client()
@@ -183,7 +183,9 @@ class LLMService:
         if system_instruction:
             generate_content_config.system_instruction = system_instruction
 
-        if self.config.generation.stream:
+        use_stream = stream if stream is not None else self.config.generation.stream
+
+        if use_stream:
             return client.models.generate_content_stream(
                 model=model,
                 contents=contents,
