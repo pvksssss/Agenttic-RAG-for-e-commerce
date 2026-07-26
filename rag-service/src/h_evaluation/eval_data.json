@@ -1,0 +1,305 @@
+[
+  {
+    "id": "qa_001",
+    "question": "Samsung Galaxy A27 5G giá bao nhiêu vậy em?",
+    "answer": "Dạ hiện tại Samsung Galaxy A27 5G 6GB 128GB đang có giá thực tế là 8,490,000 VNĐ anh/chị nhé.",
+    "intent": "price",
+    "products_used": [
+      "Samsung Galaxy A27 5G 6GB 128GB"
+    ],
+    "required_facts": [
+      {
+        "field": "actual_price",
+        "value": "8,490,000 VNĐ"
+      }
+    ],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "easy"
+  },
+  {
+    "id": "qa_002",
+    "question": "Máy này dùng chip gì vậy?",
+    "answer": "Dạ Samsung Galaxy A27 5G 6GB 128GB được trang bị bộ vi xử lý Snapdragon 6 Gen 3 anh/chị nhé.",
+    "intent": "specification",
+    "products_used": [
+      "Samsung Galaxy A27 5G 6GB 128GB"
+    ],
+    "required_facts": [
+      {
+        "field": "cpu",
+        "value": "Snapdragon 6 Gen 3"
+      }
+    ],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "easy"
+  },
+  {
+    "id": "qa_003",
+    "question": "Samsung Galaxy A27 5G có giảm giá không em?",
+    "answer": "Dạ hiện tại sản phẩm chưa có giảm giá anh/chị nhé.",
+    "intent": "discount",
+    "products_used": [
+      "Samsung Galaxy A27 5G 6GB 128GB"
+    ],
+    "required_facts": [
+      {
+        "field": "discount",
+        "value": "Không giảm giá"
+      }
+    ],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "easy"
+  },
+  {
+    "id": "qa_004",
+    "question": "Máy này còn hàng không em?",
+    "answer": "Dạ thông tin hiện có chưa ghi rõ tình trạng còn hàng của mẫu này nên em chưa thể xác nhận chính xác cho anh/chị ạ.",
+    "intent": "stock",
+    "products_used": [
+      "Samsung Galaxy A27 5G 6GB 128GB"
+    ],
+    "required_facts": [],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "medium"
+  },
+  {
+    "id": "qa_005",
+    "question": "Máy này RAM bao nhiêu và bộ nhớ trong bao nhiêu GB vậy?",
+    "answer": "Dạ Samsung Galaxy A27 5G 6GB 128GB được trang bị RAM 6 GB và bộ nhớ trong 128 GB anh/chị nhé.",
+    "intent": "multi_fact",
+    "products_used": [
+      "Samsung Galaxy A27 5G 6GB 128GB"
+    ],
+    "required_facts": [
+      {
+        "field": "ram",
+        "value": "6 GB"
+      },
+      {
+        "field": "storage",
+        "value": "128 GB"
+      }
+    ],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "easy"
+  }
+]
+
+
+[
+  {
+    "id": "qa_001",
+    "question": "Laptop HP nào trong danh sách này nhẹ nhất vậy em?",
+    "answer": "Dạ trong các mẫu hiện có, Laptop HP AI 14-HC0028TU D72BJPA, Laptop HP 14-EP1012TU D72CPPA, Laptop HP EliteBook 6 G1I 13 BQ9L8PT và Laptop HP EliteBook 6 G1I 13 BQ9M6PT đều có trọng lượng 1.3 kg, nhẹ hơn Laptop HP 250R G10 C3SH7AT (1.6 kg) anh/chị nhé.",
+    "intent": "comparison",
+    "products_used": [
+      "Laptop HP 250R G10 C3SH7AT",
+      "Laptop HP AI 14-HC0028TU D72BJPA",
+      "Laptop HP 14-EP1012TU D72CPPA",
+      "Laptop HP EliteBook 6 G1I 13 BQ9L8PT",
+      "Laptop HP EliteBook 6 G1I 13 BQ9M6PT"
+    ],
+    "required_facts": [
+      {
+        "field": "weight",
+        "value": "1.6 kg"
+      },
+      {
+        "field": "weight",
+        "value": "1.3 kg"
+      }
+    ],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "medium"
+  },
+  {
+    "id": "qa_002",
+    "question": "Trong mấy mẫu HP này có laptop nào dưới 20 triệu không em?",
+    "answer": "Dạ kết quả hiện có chưa đáp ứng đúng mức dưới 20 triệu. Mẫu có giá thấp nhất trong danh sách là Laptop HP 250R G10 C3SH7AT với giá thực tế 21,490,000 VNĐ anh/chị nhé.",
+    "intent": "filter_check",
+    "products_used": [
+      "Laptop HP 250R G10 C3SH7AT",
+      "Laptop HP AI 14-HC0028TU D72BJPA",
+      "Laptop HP 14-EP1012TU D72CPPA",
+      "Laptop HP EliteBook 6 G1I 13 BQ9L8PT",
+      "Laptop HP EliteBook 6 G1I 13 BQ9M6PT"
+    ],
+    "required_facts": [
+      {
+        "field": "actual_price",
+        "value": "21,490,000 VNĐ"
+      }
+    ],
+    "data_issue": true,
+    "data_issue_note": "Kết quả truy vấn không có sản phẩm nào dưới 20 triệu.",
+    "difficulty": "hard"
+  },
+  {
+    "id": "qa_003",
+    "question": "So sánh giúp anh HP 250R G10 với HP AI 14-HC0028TU.",
+    "answer": "Dạ HP 250R G10 C3SH7AT có màn hình 15.6 inches và sử dụng Intel Core 5 120U. HP AI 14-HC0028TU D72BJPA có màn hình 14 inches, dùng Intel Core Ultra 5 225U và được trang bị bộ xử lý AI Intel AI Boost. Cả hai đều có RAM 16GB và SSD 512GB anh/chị nhé.",
+    "intent": "comparison",
+    "products_used": [
+      "Laptop HP 250R G10 C3SH7AT",
+      "Laptop HP AI 14-HC0028TU D72BJPA"
+    ],
+    "required_facts": [
+      {
+        "field": "cpu",
+        "value": "Intel Core 5 120U (10 lõi)"
+      },
+      {
+        "field": "cpu",
+        "value": "Intel Core Ultra 5 225U (12 lõi)"
+      },
+      {
+        "field": "screen_size",
+        "value": "15.6 inches"
+      },
+      {
+        "field": "screen_size",
+        "value": "14 inches"
+      },
+      {
+        "field": "npu",
+        "value": "Intel AI Boost"
+      },
+      {
+        "field": "ram",
+        "value": "16GB"
+      },
+      {
+        "field": "storage",
+        "value": "512GB"
+      }
+    ],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "hard"
+  },
+  {
+    "id": "qa_004",
+    "question": "Mẫu EliteBook nào có Thunderbolt 4 vậy em?",
+    "answer": "Dạ Laptop HP EliteBook 6 G1I 13 BQ9L8PT và Laptop HP EliteBook 6 G1I 13 BQ9M6PT đều được trang bị 2 cổng Thunderbolt 4 hỗ trợ Power Delivery và DisplayPort anh/chị nhé.",
+    "intent": "connectivity",
+    "products_used": [
+      "Laptop HP EliteBook 6 G1I 13 BQ9L8PT",
+      "Laptop HP EliteBook 6 G1I 13 BQ9M6PT"
+    ],
+    "required_facts": [
+      {
+        "field": "ports",
+        "value": "2x Thunderbolt 4 (tối đa 40Gbps, hỗ trợ Power Delivery và DisplayPort)"
+      }
+    ],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "medium"
+  },
+  {
+    "id": "qa_005",
+    "question": "Máy HP AI 14 này có phù hợp học tập với chỉnh sửa ảnh 2D không?",
+    "answer": "Dạ Laptop HP AI 14-HC0028TU D72BJPA được ghi nhận tối ưu cho nhu cầu Học tập - Văn phòng, Mỏng nhẹ và Đồ hoạ 2D, edit hình ảnh anh/chị nhé.",
+    "intent": "usage",
+    "products_used": [
+      "Laptop HP AI 14-HC0028TU D72BJPA"
+    ],
+    "required_facts": [
+      {
+        "field": "usage",
+        "value": "Học tập - Văn phòng, Mỏng nhẹ (Tối ưu cho: Đồ hoạ 2D, edit hình ảnh)"
+      }
+    ],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "easy"
+  },
+  {
+    "id": "qa_006",
+    "question": "Laptop HP 14-EP1012TU có Bluetooth phiên bản mấy?",
+    "answer": "Dạ Laptop HP 14-EP1012TU D72CPPA hỗ trợ Bluetooth 5.3 anh/chị nhé.",
+    "intent": "connectivity",
+    "products_used": [
+      "Laptop HP 14-EP1012TU D72CPPA"
+    ],
+    "required_facts": [
+      {
+        "field": "bluetooth",
+        "value": "Bluetooth 5.3"
+      }
+    ],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "easy"
+  },
+  {
+    "id": "qa_007",
+    "question": "Máy HP 250R G10 còn hàng không em?",
+    "answer": "Dạ thông tin hiện có chưa ghi rõ tình trạng còn hàng của mẫu này nên em chưa thể xác nhận chính xác cho anh/chị ạ.",
+    "intent": "stock",
+    "products_used": [
+      "Laptop HP 250R G10 C3SH7AT"
+    ],
+    "required_facts": [],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "medium"
+  },
+  {
+    "id": "qa_008",
+    "question": "HP EliteBook 6 G1I 13 BQ9M6PT có màn hình bao nhiêu inch và độ phân giải gì?",
+    "answer": "Dạ Laptop HP EliteBook 6 G1I 13 BQ9M6PT có màn hình 13.3 inches với độ phân giải 1920 x 1200 pixels (WUXGA) anh/chị nhé.",
+    "intent": "multi_fact",
+    "products_used": [
+      "Laptop HP EliteBook 6 G1I 13 BQ9M6PT"
+    ],
+    "required_facts": [
+      {
+        "field": "screen_size",
+        "value": "13.3 inches"
+      },
+      {
+        "field": "screen_resolution",
+        "value": "1920 x 1200 pixels (WUXGA)"
+      }
+    ],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "easy"
+  },
+  {
+    "id": "qa_009",
+    "question": "Laptop HP AI 14-HC0028TU đang giảm bao nhiêu phần trăm vậy em?",
+    "answer": "Dạ hiện tại Laptop HP AI 14-HC0028TU D72BJPA đang được giảm 10.72% anh/chị nhé.",
+    "intent": "discount",
+    "products_used": [
+      "Laptop HP AI 14-HC0028TU D72BJPA"
+    ],
+    "required_facts": [
+      {
+        "field": "discount",
+        "value": "10.72%"
+      }
+    ],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "easy"
+  },
+  {
+    "id": "qa_010",
+    "question": "Kiểm tra giúp anh đơn hàng #123456 đang giao đến đâu rồi?",
+    "answer": "Dạ để kiểm tra trạng thái đơn hàng, anh/chị vui lòng đăng nhập tài khoản trước giúp em. Sau khi đăng nhập, em sẽ hỗ trợ kiểm tra thông tin đơn hàng của anh/chị.",
+    "intent": "order_lookup",
+    "products_used": [],
+    "required_facts": [],
+    "data_issue": false,
+    "data_issue_note": "",
+    "difficulty": "medium"
+  }
+]
