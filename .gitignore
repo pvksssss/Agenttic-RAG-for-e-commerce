@@ -56,7 +56,6 @@ pip-delete-this-directory.txt
 .chroma/
 *.db
 *.sqlite3
-database/chroma_db/
 
 # IDE specific settings
 .vscode/
