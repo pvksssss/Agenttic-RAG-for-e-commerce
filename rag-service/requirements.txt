@@ -20,3 +20,4 @@ pandas>=2.2.0
 
 # Utilities
 tqdm>=4.66.0
+jsonref>=1.1.0
