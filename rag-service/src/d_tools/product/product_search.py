@@ -14,13 +14,14 @@ def product_search(
     """
     Search for one or multiple products. Each item in `queries` is a dict:
       {"keyword": str, "include_details": bool (optional, default False), "need_price_info": bool (optional, default False),
-       "brand": str (optional), "category": str (optional), "min_price": float (optional), "max_price": float (optional)}
+       "brand": str (optional), "category": str (optional), "min_price": float (optional), "max_price": float (optional),
+       "limit": int (optional, default 3)}
 
     Args:
         queries: List of query objects, e.g.
-            [{"keyword": "laptop mỏng nhẹ pin trâu", "brand": "Asus", "category": "laptop", "max_price": 25000000, "need_price_info": True},
-             {"keyword": "Samsung S24", "category": "phone", "include_details": True}]
-        limit (int): Max products per query keyword.
+            [{"keyword": "laptop mỏng nhẹ pin trâu", "brand": "Asus", "category": "laptop", "max_price": 25000000, "need_price_info": True, "limit": 3},
+             {"keyword": "Samsung S24", "category": "phone", "include_details": True, "limit": 2}]
+        limit (int): Default max products per query keyword when not set inside a query item.
     """
     try:
         all_results = []
@@ -33,9 +34,13 @@ def product_search(
             category = q.get("category")
             min_price = q.get("min_price")
             max_price = q.get("max_price")
+            q_limit = q.get("limit")
+            item_limit = q_limit if q_limit is not None else limit
 
             if not keyword:
-                continue
+                keyword = f"{brand or ''} {category or ''}".strip()
+                if not keyword:
+                    continue
 
             # BƯỚC 1: Xác định có hard filter không
             has_hard_filter = any([brand, category, min_price, max_price])
@@ -46,13 +51,13 @@ def product_search(
             if has_hard_filter:
                 query = supabase_anon_client.table("products").select("id")
                 if brand:
-                    query = query.eq("brand", brand)
+                    query = query.ilike("brand", brand)
                 if category:
-                    query = query.eq("category", category)
+                    query = query.ilike("category", category)
                 if min_price is not None:
-                    query = query.gte("price", min_price)
+                    query = query.gte("final_price", min_price)
                 if max_price is not None:
-                    query = query.lte("price", max_price)
+                    query = query.lte("final_price", max_price)
                 
                 response = query.execute()
                 if response.data:
@@ -80,13 +85,13 @@ def product_search(
                 raw_products = product_retriever.retrieve(
                     query_text=keyword,
                     product_ids=candidate_ids,
-                    limit=limit
+                    limit=item_limit
                 )
             else:
                 # Không có filter hoặc candidate_ids rỗng -> search toàn catalog
                 raw_products = product_retriever.retrieve(
                     query_text=keyword,
-                    limit=limit
+                    limit=item_limit
                 )
 
             if not raw_products:
@@ -98,7 +103,7 @@ def product_search(
 
             formatted_list = []
             product_ids = []
-            for item in raw_products[:limit]:
+            for item in raw_products[:item_limit]:
                 doc_content = item["document"]
                 metadata = item["metadata"]
                 score = item["score"]
@@ -178,14 +183,14 @@ PRODUCT_SEARCH_SCHEMA = {
         "name": "product_search",
         "description": (
             "Search for one or multiple electronic products. Each item in `queries` can "
-            "have ITS OWN brand/category/min_price/max_price filter — if the customer asks about "
+            "have ITS OWN brand/category/min_price/max_price/limit filter — if the customer asks about "
             "multiple products with DIFFERENT conditions in one message (e.g. 'Dell laptop dưới "
             "20 triệu và Asus phone dưới 25 triệu'), split them into separate items in a SINGLE "
             "call rather than calling this tool multiple times. If brand/category/min_price/"
             "max_price are provided for an item, the system pre-filters candidates by "
             "these exact conditions FIRST via Supabase, then ranks semantically within that "
             "filtered set — always fill these fields when known instead of embedding them in the "
-            "keyword text. Use include_details=True for technical specs (chip, RAM, "
+            "keyword text. `limit` is the number of products to return for that specific item (default 3 if omitted). Use include_details=True for technical specs (chip, RAM, "
             "display, battery...). Use need_price_info=True when asking about price, "
             "discount, stock, or SKU. Default both to False to save tokens."
         ),
@@ -194,7 +199,7 @@ PRODUCT_SEARCH_SCHEMA = {
             "properties": {
                 "queries": {
                     "type": "array",
-                    "description": "List of product queries. Each item must have 'keyword' and optionally 'include_details'.",
+                    "description": "List of product queries. Each item must have 'keyword' and optionally 'brand', 'category', 'min_price', 'max_price', 'limit', 'include_details', 'need_price_info'.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -248,14 +253,14 @@ PRODUCT_SEARCH_SCHEMA = {
                                     "Set True when customer asks about price, discount, stock, or SKU. "
                                     "Set False (default) when customer only asks about general info."
                                 )
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Max number of products to return for this specific query (default: 3 if omitted)."
                             }
                         },
                         "required": ["keyword"]
                     }
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max number of products to return per keyword (default: 3)."
                 }
             },
             "required": ["queries"]

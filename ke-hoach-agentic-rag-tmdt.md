@@ -855,3 +855,67 @@ Dưới đây là bảng đối chiếu chi tiết giữa thiết kế dự ki�
 | **7** | *"So sánh Samsung S24, S25 Plus, iPhone 16 và các dòng Xiaomi của Tàu"* | Câu hỏi hỗn hợp phức tạp (cụ thể + mơ hồ) | LLM tách câu hỏi làm 2 phần: gọi `product_compare` cho 3 máy cụ thể, và gọi song song `product_search` tìm các dòng flagship Xiaomi tương đương ➡️ Gom thông tin so sánh. |
 | **8** | *"Shop mình có bán laptop Lenovo ThinkPad không?"* | Hỏi sản phẩm không có sẵn (Định hướng nhu cầu) | LLM nhận diện ThinkPad không nằm trong danh mục sản phẩm của shop ➡️ Không dùng Web Search ngoài ➡️ Tự gọi `product_search` tìm các dòng máy tương đương đang có sẵn (Dell Latitude, HP ProBook) để tư vấn định hướng khách hàng mua sản phẩm của shop. |
 
+### 8. Lưu trữ & tái sử dụng tool context qua các lượt hội thoại (multi-turn)
+ 
+**Vấn đề:**
+- `messages` trong `AgentState` chỉ nên chứa hội thoại user ↔ assistant. Nếu nhét tool call / tool result vào `messages` dễ gây lệch index, khó debug và khó hiển thị trên UI.
+- Khi khách hỏi tiếp về cùng nhóm sản phẩm (chip, pin, giá, tồn kho), agent cần giữ nguyên `limit`, `brand`, `category`, `min_price`, `max_price`, `keyword` từ lượt trước.
+ 
+**Giải pháp:**
+ 
+1. **Thêm trường `tool_context: dict` vào `AgentState`**
+   - `tool_context` chuyên lưu args của tool vừa gọi, tách biệt với `conversation_state`.
+   - Dễ debug, dễ benchmark, dễ inject vào lượt sau.
+   - Cấu trúc ví dụ:
+     ```python
+     tool_context = {
+         "last_product_search": {
+             "queries": [
+                 {
+                     "keyword": "laptop",
+                     "brand": "HP",
+                     "category": "laptop",
+                     "min_price": None,
+                     "max_price": 30000000,
+                     "limit": 4,
+                     "include_details": False,
+                     "need_price_info": True
+                 }
+             ]
+         },
+         "last_product_compare": None
+     }
+     ```
+ 
+2. **`MasterAgent.invoke` trả về `tool_context`**
+   - Sau mỗi lần gọi tool, lưu `func_args` đã được làm sạch (sanitize) chỉ giữ key hợp lệ của schema:
+     - `product_search`: giữ `queries`, mỗi query chỉ giữ `keyword, brand, category, min_price, max_price, limit, include_details, need_price_info`.
+     - `product_compare`: giữ `product_names`.
+   - Trả về kèm `content`, `latency`, `tokens`.
+ 
+3. **`master_node` inject tool context vào prompt dưới dạng system note**
+   - Build message:
+     ```python
+     full_messages = [{"role": "system", "content": FULL_MASTER_PROMPT}] + memory_notes + state["messages"]
+     ```
+   - Memory note từ `last_product_search`:
+     ```python
+     note = f"""[TOOL GỌI GẦN NHẤT] product_search
+Tham số: {json.dumps(last_search, ensure_ascii=False)}
+Nếu user hỏi tiếp về cùng nhóm sản phẩm, hãy tái sử dụng chính xác các tham số trên, chỉ thay đổi include_details hoặc need_price_info cho phù hợp."""
+     ```
+   - `master_node` trả về:
+     - `messages`: chỉ assistant final answer.
+     - `tool_context`: merge với state cũ rồi cập nhật.
+ 
+4. **Định dạng log tool call (debug / benchmark / audit)**
+   - Có thể ghi vào `chat_logs` với `role = "tool"` hoặc `role = "system"`, `tool_used = "<tool_name>"`, `message = json.dumps(args, ensure_ascii=False)`.
+   - Ví dụ dòng log:
+     ```json
+     {"tool": "product_search", "args": {"queries": [{"brand": "HP", "category": "laptop", "limit": 4, "max_price": 30000000, "keyword": "laptop"}]}}
+     ```
+ 
+**Kết quả:**
+- Multi-turn giữ đúng `limit` và bộ lọc (HP/Acer, chip/pin/giá/tồn kho).
+- `messages` sạch, chỉ user/assistant, dễ hiển thị UI.
+- `tool_context` dễ audit, tránh lệch index, dễ benchmark.

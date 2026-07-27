@@ -83,7 +83,8 @@ class BaseRetriever:
         
         # Priority 1: Filter by product_ids (new flow from Supabase pre-filtering)
         if product_ids:
-            conditions.append({"id": {"$in": product_ids}})
+            str_ids = [str(pid) for pid in product_ids if pid is not None]
+            conditions.append({"product_id": {"$in": str_ids}})
         else:
             # Priority 2: Legacy filters (brand, min_price, max_price)
             if brand:

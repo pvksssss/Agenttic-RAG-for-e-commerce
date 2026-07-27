@@ -204,3 +204,44 @@ BƯỚC 3 — Merge giá từ bước 2 vào từng entry so sánh (thay cho
 - Tham số `limit` vẫn để ở cấp tool call ngoài (không đẩy xuống per-item) — đây chỉ
   là số lượng hiển thị, không phải điều kiện lọc ảnh hưởng đến tính đúng-sai của kết
   quả, nên không có rủi ro giống brand/giá.
+
+---
+
+## Cập nhật sau khi thực hiện
+
+### Files đã sửa
+
+1. `rag-service/src/c_retrieval/base_retriever.py`
+   - `_build_where_clause` khi nhận `product_ids` (int từ Supabase) sẽ ép kiểu sang
+     `str` và lọc trên metadata field `product_id` của ChromaDB thay vì field `id`.
+   - Khắc phục lỗi chính khiến `product_search` luôn rỗng: Chroma doc id là
+     `prod_<id>`, còn metadata lưu ID ở `product_id`.
+
+2. `rag-service/src/d_tools/product/product_search.py`
+   - Lọc giá (`min_price`/`max_price`) trên `final_price` (giá bán thực tế) thay vì
+     `price` (giá gốc), khớp với mong đợi của khách hàng.
+   - Thêm bản đồ alias cho `brand` và `category` (VD `ss` → `Samsung`, `điện thoại` →
+     `phone`, `máy tính xách tay` → `laptop`).
+   - Fallback thông minh: nếu lọc `brand` cho tập rỗng, tự động thử lại bỏ `brand`
+     nhưng giữ `category`/`price` trước khi tìm trên toàn catalog.
+   - Dedupe SQL: các item trong batch có cùng (brand, category, min_price,
+     max_price) chỉ query Supabase một lần.
+   - Batch price info: khi nhiều item `need_price_info=True` mà không có hard
+     filter, gom id lại query Supabase một lần duy nhất.
+   - Trả lỗi theo từng item trong batch, không làm fail cả batch.
+   - Cập nhật `PRODUCT_SEARCH_SCHEMA` description để LLM hiểu rõ hơn cách
+     tách `keyword`/`brand`/`category`/`price`.
+
+3. `rag-service/notebooks/02_load_cleaner_chunker.ipynb` (cell 20 - do user chạy lại local)
+   - Sửa `batch_ids` từ `f"prod_{prod['id']}"` thành `str(prod["id"])`.
+   - Thêm `"id": str(prod.get("id") or "")` vào metadata.
+   - Thêm `delete_collection` đầu cell để tránh trùng vector khi re-import.
+
+### Kết quả test trên box
+
+- `05_test_tools_agent.ipynb`: `product_search` trả về sản phẩm thay vì
+  `No matching products found`.
+- `07_01_workflow1.ipynb`: Agent nhận query "cho a con laptop mỏng nhẹ pin trâu
+  dưới 25 triệu", gọi `product_search` với `category=laptop`, `max_price=25000000`,
+  `keyword=mỏng nhẹ pin trâu` và trả lời đúng các mẫu laptop mỏng nhẹ, pin tốt
+  trong tầm giá.
