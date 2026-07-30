@@ -309,6 +309,7 @@ export default function ChatWidget() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(userToken ? { 'Authorization': `Bearer ${userToken}` } : {}),
         },
         body: JSON.stringify({
           message: userMsgText,

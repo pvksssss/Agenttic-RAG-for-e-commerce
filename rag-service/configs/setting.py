@@ -21,7 +21,21 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_API_KEY_2: str = ""
     GEMINI_API_KEY_3: str = ""
+    GEMINI_API_KEY_4: str = ""
+    GEMINI_API_KEY_5: str = ""
+    GEMINI_API_KEY_6: str = ""
+    GEMINI_API_KEY_7: str = ""
+    GEMINI_API_KEY_8: str = ""
+
     GROQ_API_KEY: str = ""
+    GROQ_API_KEY_2: str = ""
+    GROQ_API_KEY_3: str = ""
+    GROQ_API_KEY_4: str = ""
+    GROQ_API_KEY_5: str = ""
+    GROQ_API_KEY_6: str = ""
+    GROQ_API_KEY_7: str = ""
+    GROQ_API_KEY_8: str = ""
+
     OPENROUTER_API_KEY: str = ""
 
     # 4. Vector Database Config

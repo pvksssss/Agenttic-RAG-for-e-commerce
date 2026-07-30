@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     // Đọc URL của RAG service từ biến môi trường (Ví dụ: NEXT_PUBLIC_RAG_SERVICE_URL trong .env.local)
     // Hoặc sử dụng fallback localhost của FastAPI (mặc định cổng 8000)
     let ragServiceUrl = process.env.NEXT_PUBLIC_RAG_SERVICE_URL || 'http://localhost:8080/chat';
-    
+
     // Nếu biến môi trường trỏ đến chính nó (mock route), ta đổi sang FastAPI cổng 8080 để tránh loop vô tận
     if (ragServiceUrl.includes('/api/chat')) {
       ragServiceUrl = 'http://localhost:8080/chat';
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
 
 Bạn có thể bấm trực tiếp vào liên kết sản phẩm phía trên để xem chi tiết thông số kỹ thuật, hình ảnh và đánh giá từ khách hàng khác!`;
       sources = ['products_table_search'];
-    } 
+    }
     else if (msgLower.includes('so sánh') || msgLower.includes('khác nhau')) {
       tool_used = 'product_compare_tool';
       reply = `Dưới đây là bảng so sánh nhanh thông số kỹ thuật giữa **MacBook Air M3** và **Dell XPS 13 Plus** để bạn tham khảo (Chế độ Mock Fallback):
@@ -92,7 +92,7 @@ Bạn có thể bấm trực tiếp vào liên kết sản phẩm phía trên đ
     }
     else if (msgLower.includes('đơn hàng') || msgLower.includes('order') || msgLower.includes('mua gì')) {
       tool_used = 'order_lookup_tool';
-      
+
       if (!user_token) {
         reply = `Để tra cứu trạng thái đơn hàng của bạn, vui lòng **đăng nhập tài khoản** trước tiên. Bạn có thể đăng nhập bằng email hoặc tài khoản Google ở góc trên thanh công cụ.
 

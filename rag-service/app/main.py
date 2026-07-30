@@ -29,7 +29,7 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
-    # user_token đã được chuyển lên Header Authorization để tăng tính bảo mật
+    user_token: Optional[str] = None
 
 class ChatResponse(BaseModel):
     reply: str
@@ -51,7 +51,7 @@ async def chat_endpoint(request: ChatRequest, authorization: Optional[str] = Hea
     try:
         from app.core.security import verify_supabase_jwt
         
-        # Giải mã token lấy từ Header Authorization (Bearer token)
+        # Giải mã token từ Header Authorization hoặc fallback từ Body request
         user_id = None
         user_token = None
         if authorization:
@@ -59,7 +59,10 @@ async def chat_endpoint(request: ChatRequest, authorization: Optional[str] = Hea
                 user_token = authorization[7:]
             else:
                 user_token = authorization
-            
+        elif request.user_token:
+            user_token = request.user_token
+
+        if user_token:
             user_id = verify_supabase_jwt(user_token)
             
         msg_lower = request.message.lower()
@@ -69,6 +72,7 @@ async def chat_endpoint(request: ChatRequest, authorization: Optional[str] = Hea
         reply = (
             f"Chào bạn! Đây là phản hồi từ FastAPI AI Backend thực tế.\n"
             f"Trạng thái Auth: {auth_status}\n"
+            f"Token nhận được: {user_token + '...' if user_token else 'None'}\n"
             f"Nội dung chat: '{request.message}'"
         )
         tool_used = "mock_fastapi_tool"

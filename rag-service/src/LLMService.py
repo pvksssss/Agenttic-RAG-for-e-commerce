@@ -1,4 +1,7 @@
 from typing import List, Dict, Any, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 class LLMService:
     def __init__(self, settings, config):
@@ -154,10 +157,41 @@ class LLMService:
         raw = (reasoning_effort or "default").strip().lower()
         return mapping.get(raw, "MINIMAL")
 
-    def call_gemini(self, model, messages: list, tools: list = None, stream: bool = None):
-        from google.genai import types
+    def _get_gemini_keys(self) -> List[str]:
+        """Tự động thu thập các Gemini API Key từ settings."""
+        keys = []
+        if hasattr(self.settings, "GEMINI_API_KEYS") and isinstance(self.settings.GEMINI_API_KEYS, list):
+            keys.extend([k for k in self.settings.GEMINI_API_KEYS if k])
+        
+        # Quét các biến GEMINI_API_KEY, GEMINI_API_KEY_1, GEMINI_API_KEY_2...
+        main_key = getattr(self.settings, "GEMINI_API_KEY", None)
+        if main_key and main_key not in keys:
+            keys.append(main_key)
+            
+        for i in range(1, 10):
+            k = getattr(self.settings, f"GEMINI_API_KEY_{i}", None)
+            if k and k not in keys:
+                keys.append(k)
+        return keys
 
-        client = self._get_gemini_client()
+    def _rotate_gemini_key(self) -> bool:
+        """Xoay sang Gemini API Key tiếp theo trong danh sách khi bị Rate Limit."""
+        keys = self._get_gemini_keys()
+        if len(keys) > 1:
+            current_index = getattr(self, "_gemini_key_index", 0)
+            next_index = (current_index + 1) % len(keys)
+            self._gemini_key_index = next_index
+            new_key = keys[next_index]
+            self.settings.GEMINI_API_KEY = new_key
+            from google import genai
+            self._gemini_client = genai.Client(api_key=new_key)
+            logger.warning(f"[LLMService Router] Rate limit! Rotated Gemini Key to {next_index + 1}/{len(keys)}")
+            return True
+        return False
+
+    def call_gemini(self, model, messages: list, tools: list = None, stream: bool = None, max_retries: int = 3):
+        import time
+        from google.genai import types
 
         contents = self._to_gemini_contents(messages)
         system_instruction = self._extract_system_instruction(messages)
@@ -184,16 +218,34 @@ class LLMService:
             generate_content_config.system_instruction = system_instruction
 
         use_stream = stream if stream is not None else self.config.generation.stream
+        keys = self._get_gemini_keys()
+        effective_retries = max(max_retries, len(keys)) if keys else max_retries
 
-        if use_stream:
-            return client.models.generate_content_stream(
-                model=model,
-                contents=contents,
-                config=generate_content_config,
-            )
-
-        return client.models.generate_content(
-            model=model,
-            contents=contents,
-            config=generate_content_config,
-        )
+        for attempt in range(effective_retries):
+            try:
+                client = self._get_gemini_client()
+                if use_stream:
+                    return client.models.generate_content_stream(
+                        model=model,
+                        contents=contents,
+                        config=generate_content_config,
+                    )
+                return client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=generate_content_config,
+                )
+            except Exception as e:
+                err_str = str(e).lower()
+                is_rate_limit = any(k in err_str for k in ["429", "500", "503", "internal", "unavailable", "resource_exhausted", "quota", "rate limit", "too many requests", "high demand"])
+                if is_rate_limit:
+                    rotated = self._rotate_gemini_key()
+                    if rotated:
+                        # 🔑 Đã xoay sang Key mới thành công -> Cho phép thử ngay với Key mới!
+                        continue
+                    else:
+                        logger.warning(f"[LLMService Router] Rate limit hit. Waiting 15s before retry (attempt {attempt + 1}/{effective_retries})...")
+                        time.sleep(15)
+                    if attempt < effective_retries - 1:
+                        continue
+                raise e
