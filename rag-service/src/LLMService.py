@@ -9,23 +9,69 @@ class LLMService:
         self.config = config
         self._groq_client = None
         self._gemini_client = None
+        self._gemini_keys = None
+        self._groq_keys = None
+        self._gemini_key_index = 0
+        self._groq_key_index = 0
 
     def _get_groq_client(self):
-        """Khởi tạo lười (Lazy) Groq client và giữ kết nối socket bền vững."""
+        """Khởi tạo lười (Lazy) Groq client với key hiện tại trong router."""
         if self._groq_client is None:
             from groq import Groq
-            self._groq_client = Groq(api_key=self.settings.GROQ_API_KEY)
+            keys = self._get_groq_keys()
+            idx = getattr(self, "_groq_key_index", 0)
+            key = keys[idx] if keys else self.settings.GROQ_API_KEY
+            self._groq_client = Groq(api_key=key)
         return self._groq_client
 
     def _get_gemini_client(self):
-        """Khởi tạo lười (Lazy) Gemini client và giữ kết nối socket bền vững."""
+        """Khởi tạo lười (Lazy) Gemini client với key hiện tại trong router."""
         if self._gemini_client is None:
             from google import genai
-            self._gemini_client = genai.Client(api_key=self.settings.GEMINI_API_KEY)
+            keys = self._get_gemini_keys()
+            idx = getattr(self, "_gemini_key_index", 0)
+            key = keys[idx] if keys else self.settings.GEMINI_API_KEY
+            self._gemini_client = genai.Client(api_key=key)
         return self._gemini_client
 
-    def call_groq(self, model, messages: list, tools: list = None):
-        client = self._get_groq_client()
+    # ------------------------------------------------------------------
+    # Groq key router
+    # ------------------------------------------------------------------
+    def _get_groq_keys(self) -> List[str]:
+        """Thu thập các Groq API Key từ settings (cache 1 lần)."""
+        if self._groq_keys is not None:
+            return self._groq_keys
+        keys = []
+        if hasattr(self.settings, "GROQ_API_KEYS") and isinstance(self.settings.GROQ_API_KEYS, list):
+            keys.extend([k for k in self.settings.GROQ_API_KEYS if k])
+        main_key = getattr(self.settings, "GROQ_API_KEY", None)
+        if main_key and main_key not in keys:
+            keys.append(main_key)
+        for i in range(1, 20):
+            k = getattr(self.settings, f"GROQ_API_KEY_{i}", None)
+            if k and k not in keys:
+                keys.append(k)
+        self._groq_keys = keys
+        return keys
+
+    def _rotate_groq_key(self) -> tuple:
+        """Xoay sang Groq API Key tiếp theo khi bị Rate Limit.
+        Trả về (rotated, cycled)."""
+        keys = self._get_groq_keys()
+        if len(keys) <= 1:
+            return False, False
+        curr = self._groq_key_index
+        nxt = (curr + 1) % len(keys)
+        self._groq_key_index = nxt
+        new_key = keys[nxt]
+        self.settings.GROQ_API_KEY = new_key
+        self._groq_client = None
+        cycled = nxt <= curr
+        print(f"   🔁 LLMService Groq key rotated to {nxt + 1}/{len(keys)}{' (full cycle)' if cycled else ''}.")
+        return True, cycled
+
+    def call_groq(self, model, messages: list, tools: list = None, max_retries: int = 3):
+        import time
 
         kwargs = {
             "model": model,
@@ -50,8 +96,46 @@ class LLMService:
                     formatted_tools.append(tool)
             kwargs["tools"] = formatted_tools
 
-        completion = client.chat.completions.create(**kwargs)
-        return completion
+        cycles = 0
+        prev_idx = self._groq_key_index
+        attempt_non_rate = 0
+        max_non_rate_retries = 3
+
+        while True:
+            client = self._get_groq_client()
+            try:
+                completion = client.chat.completions.create(**kwargs)
+                return completion
+            except Exception as e:
+                err_str = str(e).lower()
+                is_rate_limit = any(k in err_str for k in ["429", "rate limit", "quota", "too many requests", "rate_limit", "quotaexceeded"])
+                is_retryable = any(k in err_str for k in ["500", "503", "internal", "unavailable", "temporarily unavailable", "high demand"])
+
+                if is_rate_limit:
+                    rotated, cycled = self._rotate_groq_key()
+                    if rotated:
+                        if cycled:
+                            cycles += 1
+                            if cycles >= max_retries:
+                                raise RuntimeError(f"LLMService Groq failed after {cycles} full key cycles due to rate limit")
+                            print(f"   ⏳ All Groq keys rate limit (cycle {cycles}/{max_retries}). Chờ 60s rồi retry...")
+                            time.sleep(60)
+                        continue
+                    else:
+                        cycles += 1
+                        if cycles >= max_retries:
+                            raise
+                        print(f"   ⏳ Only one Groq key available. Rate limit (cycle {cycles}/{max_retries}). Chờ 60s rồi retry...")
+                        time.sleep(60)
+                        continue
+
+                if is_retryable and attempt_non_rate < max_non_rate_retries:
+                    attempt_non_rate += 1
+                    print(f"   ⚠️ LLMService Groq retryable error, attempt {attempt_non_rate}/{max_non_rate_retries}: {str(e)[:120]}")
+                    time.sleep(2 ** attempt_non_rate)
+                    continue
+
+                raise e
 
     @staticmethod
     def _normalize_msg(msg) -> dict:
@@ -157,37 +241,45 @@ class LLMService:
         raw = (reasoning_effort or "default").strip().lower()
         return mapping.get(raw, "MINIMAL")
 
+    # ------------------------------------------------------------------
+    # Gemini key router
+    # ------------------------------------------------------------------
     def _get_gemini_keys(self) -> List[str]:
-        """Tự động thu thập các Gemini API Key từ settings."""
+        """Tự động thu thập các Gemini API Key từ settings (cache 1 lần)."""
+        if self._gemini_keys is not None:
+            return self._gemini_keys
         keys = []
         if hasattr(self.settings, "GEMINI_API_KEYS") and isinstance(self.settings.GEMINI_API_KEYS, list):
             keys.extend([k for k in self.settings.GEMINI_API_KEYS if k])
-        
+
         # Quét các biến GEMINI_API_KEY, GEMINI_API_KEY_1, GEMINI_API_KEY_2...
         main_key = getattr(self.settings, "GEMINI_API_KEY", None)
         if main_key and main_key not in keys:
             keys.append(main_key)
-            
-        for i in range(1, 10):
+
+        for i in range(1, 20):
             k = getattr(self.settings, f"GEMINI_API_KEY_{i}", None)
             if k and k not in keys:
                 keys.append(k)
+        self._gemini_keys = keys
         return keys
 
-    def _rotate_gemini_key(self) -> bool:
-        """Xoay sang Gemini API Key tiếp theo trong danh sách khi bị Rate Limit."""
+    def _rotate_gemini_key(self) -> tuple:
+        """Xoay sang Gemini API Key tiếp theo khi bị Rate Limit.
+        Trả về (rotated, cycled)."""
         keys = self._get_gemini_keys()
-        if len(keys) > 1:
-            current_index = getattr(self, "_gemini_key_index", 0)
-            next_index = (current_index + 1) % len(keys)
-            self._gemini_key_index = next_index
-            new_key = keys[next_index]
-            self.settings.GEMINI_API_KEY = new_key
-            from google import genai
-            self._gemini_client = genai.Client(api_key=new_key)
-            logger.warning(f"[LLMService Router] Rate limit! Rotated Gemini Key to {next_index + 1}/{len(keys)}")
-            return True
-        return False
+        if len(keys) <= 1:
+            return False, False
+        current_index = self._gemini_key_index
+        next_index = (current_index + 1) % len(keys)
+        self._gemini_key_index = next_index
+        new_key = keys[next_index]
+        self.settings.GEMINI_API_KEY = new_key
+        from google import genai
+        self._gemini_client = genai.Client(api_key=new_key)
+        cycled = next_index <= current_index
+        print(f"   🔁 LLMService Gemini key rotated to {next_index + 1}/{len(keys)}{' (full cycle)' if cycled else ''}.")
+        return True, cycled
 
     def call_gemini(self, model, messages: list, tools: list = None, stream: bool = None, max_retries: int = 3):
         import time
@@ -218,10 +310,12 @@ class LLMService:
             generate_content_config.system_instruction = system_instruction
 
         use_stream = stream if stream is not None else self.config.generation.stream
-        keys = self._get_gemini_keys()
-        effective_retries = max(max_retries, len(keys)) if keys else max_retries
+        cycles = 0
+        prev_idx = self._gemini_key_index
+        attempt_non_rate = 0
+        max_non_rate_retries = 3
 
-        for attempt in range(effective_retries):
+        while True:
             try:
                 client = self._get_gemini_client()
                 if use_stream:
@@ -237,15 +331,31 @@ class LLMService:
                 )
             except Exception as e:
                 err_str = str(e).lower()
-                is_rate_limit = any(k in err_str for k in ["429", "500", "503", "internal", "unavailable", "resource_exhausted", "quota", "rate limit", "too many requests", "high demand"])
+                is_rate_limit = any(k in err_str for k in ["429", "resource_exhausted", "quota", "rate limit", "too many requests", "rate_limit", "quotaexceeded"])
+                is_retryable = any(k in err_str for k in ["500", "503", "internal", "unavailable", "temporarily unavailable", "high demand"])
+
                 if is_rate_limit:
-                    rotated = self._rotate_gemini_key()
+                    rotated, cycled = self._rotate_gemini_key()
                     if rotated:
-                        # 🔑 Đã xoay sang Key mới thành công -> Cho phép thử ngay với Key mới!
+                        if cycled:
+                            cycles += 1
+                            if cycles >= max_retries:
+                                raise RuntimeError(f"LLMService Gemini failed after {cycles} full key cycles due to rate limit")
+                            print(f"   ⏳ All Gemini keys rate limit (cycle {cycles}/{max_retries}). Chờ 60s rồi retry...")
+                            time.sleep(60)
                         continue
                     else:
-                        logger.warning(f"[LLMService Router] Rate limit hit. Waiting 15s before retry (attempt {attempt + 1}/{effective_retries})...")
-                        time.sleep(15)
-                    if attempt < effective_retries - 1:
+                        cycles += 1
+                        if cycles >= max_retries:
+                            raise
+                        print(f"   ⏳ Only one Gemini key available. Rate limit (cycle {cycles}/{max_retries}). Chờ 60s rồi retry...")
+                        time.sleep(60)
                         continue
+
+                if is_retryable and attempt_non_rate < max_non_rate_retries:
+                    attempt_non_rate += 1
+                    print(f"   ⚠️ LLMService Gemini retryable error, attempt {attempt_non_rate}/{max_non_rate_retries}: {str(e)[:120]}")
+                    time.sleep(2 ** attempt_non_rate)
+                    continue
+
                 raise e

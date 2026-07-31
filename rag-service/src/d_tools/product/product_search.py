@@ -147,7 +147,11 @@ def product_search(
  
             # BƯỚC 2: Query Supabase trước nếu có hard filter
             if has_hard_filter:
-                query = supabase_anon_client.table("products").select("id")
+                query = (
+                    supabase_anon_client.table("products")
+                    .select("id")
+                    .order("id", desc=False)
+                )
                 if brand:
                     query = query.ilike("brand", brand)
                 if category:
@@ -163,10 +167,12 @@ def product_search(
                 if response.data:
                     candidate_ids = [item["id"] for item in response.data]
                     # Lấy thêm thông tin cơ bản (giá, tên, SKU, stock, discount) cho mọi candidate
+                    candidate_ids = sorted(set(candidate_ids))
                     price_response = (
                         supabase_anon_client.table("products")
                         .select("id, name, sku, stock, price, final_price, discount")
                         .in_("id", candidate_ids)
+                        .order("id", desc=False)
                         .execute()
                     )
                     if price_response.data:
@@ -182,7 +188,11 @@ def product_search(
                             }
  
             # BƯỚC 3: Semantic search trong Chroma (trong candidate_ids nếu có)
-            if has_hard_filter and candidate_ids:
+            if has_hard_filter:
+                if not candidate_ids:
+                    # Hard filters đã loại bỏ toàn bộ candidates -> không fallback toàn bộ
+                    all_results.append(f'["{keyword}"]: No matching products found for the specified filters.')
+                    continue
                 if mode == "lines":
                     # Cần pool lớn hơn để đảm bảo đủ đại diện mỗi dòng
                     pool_limit = min(len(candidate_ids), max(item_limit * 5, 20))
@@ -230,7 +240,10 @@ def product_search(
  
                 sorted_lines = sorted(
                     lines.values(),
-                    key=lambda x: (x[1]["final_price"] if x[1]["final_price"] is not None else float("inf"))
+                    key=lambda x: (
+                        x[1]["final_price"] if x[1]["final_price"] is not None else float("inf"),
+                        x[1].get("id") if x[1].get("id") is not None else float("inf"),
+                    )
                 )[:item_limit]
  
                 if not sorted_lines:

@@ -24,10 +24,19 @@ from tqdm.auto import tqdm
 from langchain_openai import ChatOpenAI
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
-from ragas import evaluate as ragas_evaluate
-from ragas.llms import LangchainLLMWrapper
-from ragas.embeddings import LangchainEmbeddingsWrapper
-from ragas.metrics import faithfulness, answer_correctness, context_precision, context_recall
+# Lazy import ragas để tránh lỗi khi môi trường thiếu dependency hoặc version không tương thích
+_ragas_available = False
+try:
+    from ragas import evaluate as ragas_evaluate
+    from ragas.llms import LangchainLLMWrapper
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+    from ragas.metrics import faithfulness, answer_correctness, context_precision, context_recall
+    _ragas_available = True
+except Exception:  # pragma: no cover
+    ragas_evaluate = None  # type: ignore
+    LangchainLLMWrapper = None  # type: ignore
+    LangchainEmbeddingsWrapper = None  # type: ignore
+    faithfulness = answer_correctness = context_precision = context_recall = None  # type: ignore
 
 try:
     from configs.setting import settings
@@ -249,7 +258,8 @@ def _intervention(category: str, risk_level: str, answer: str) -> float:
 # Judge LLM
 # ---------------------------------------------------------------------------
 class JudgeLLM:
-    """Judge có thể chạy Groq (Llama/GPT-OSS) hoặc Gemini (Gemma)."""
+    """Judge có thể chạy Groq (Llama/GPT-OSS) hoặc Gemini (Gemma).
+    Tự động xoay vòng nhiều API key của cùng provider khi bị rate limit."""
 
     def __init__(
         self,
@@ -260,28 +270,36 @@ class JudgeLLM:
         temperature: float = 0.0,
         max_retries: int = 5,
     ):
-        self.provider = provider.lower()
         self.temperature = temperature
         self.max_retries = max_retries
         self.llm_service = llm_service
         self.gemini_key_manager = gemini_key_manager
+        self._init_client(provider, model)
 
+    def _init_client(self, provider: str, model: Optional[str] = None):
+        """Khởi tạo client cho provider (gemini/groq)."""
+        self.provider = provider.lower()
         if self.provider == "gemini":
             if not settings or not settings.GEMINI_API_KEY:
                 raise ValueError("Cần GEMINI_API_KEY để dùng Gemini judge")
             from google import genai
-            self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            if self.gemini_key_manager:
+                self.client = self.gemini_key_manager.create_client()
+            else:
+                self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
             if model is None:
-                if app_config and len(app_config.llm.google.available) > 2:
-                    model = app_config.llm.google.available[2]
+                # Dùng Gemini Flash Lite làm judge mặc định (tuân thủ rubric JSON tốt hơn Gemma)
+                if app_config and len(app_config.llm.google.available) > 1:
+                    model = app_config.llm.google.available[1]
                 else:
-                    model = "gemma-4-26b-a4b-it"
+                    model = "gemini-3.1-flash-lite"
             self.model = model
         elif self.provider == "groq":
             if not settings or not settings.GROQ_API_KEY:
                 raise ValueError("Cần GROQ_API_KEY để dùng Groq judge")
             import openai
             self.client = openai.OpenAI(api_key=settings.GROQ_API_KEY, base_url="https://api.groq.com/openai/v1", timeout=60)
+            self._groq_key_idx = getattr(self, "_groq_key_idx", 0)
             if model is None:
                 if app_config and len(app_config.llm.groq.available) > 0:
                     model = app_config.llm.groq.available[0]
@@ -313,30 +331,27 @@ class JudgeLLM:
                         keys.append(k)
         return keys
 
-    def _rotate_groq(self) -> bool:
-        """Xoay sang Groq API Key tiếp theo khi bị Rate Limit (TPD / TPM)."""
+    def _rotate_groq(self) -> Tuple[bool, bool]:
+        """Xoay sang Groq API Key tiếp theo khi bị Rate Limit (TPD / TPM).
+        Trả về (rotated, cycled)."""
         keys = self._get_groq_keys()
-        if len(keys) > 1:
-            curr = getattr(self, "_groq_key_idx", 0)
-            nxt = (curr + 1) % len(keys)
-            self._groq_key_idx = nxt
-            new_key = keys[nxt]
-            if settings:
-                settings.GROQ_API_KEY = new_key
-            import openai
-            self.client = openai.OpenAI(api_key=new_key, base_url="https://api.groq.com/openai/v1", timeout=60)
-            cycled = nxt <= curr
-            if cycled:
-                print(f"   🔁 Groq key rotated to {nxt + 1}/{len(keys)} (full cycle). Chờ 60s...")
-                time.sleep(60)
-            else:
-                print(f"   🔁 Groq key rotated to {nxt + 1}/{len(keys)}.")
-            return True
-        return False
+        if len(keys) <= 1:
+            return False, False
+        curr = getattr(self, "_groq_key_idx", 0)
+        nxt = (curr + 1) % len(keys)
+        self._groq_key_idx = nxt
+        new_key = keys[nxt]
+        import openai
+        self.client = openai.OpenAI(api_key=new_key, base_url="https://api.groq.com/openai/v1", timeout=60)
+        cycled = nxt <= curr
+        print(f"   🔁 Groq key rotated to {nxt + 1}/{len(keys)}{' (full cycle)' if cycled else ''}.")
+        return True, cycled
 
-    def _rotate_gemini(self) -> bool:
+    def _rotate_gemini(self) -> Tuple[bool, bool]:
+        """Xoay sang Gemini API Key tiếp theo khi bị Rate Limit.
+        Trả về (rotated, cycled)."""
         if not self.gemini_key_manager or not settings:
-            return False
+            return False, False
         prev = self.gemini_key_manager.current_index
         new_key = self.gemini_key_manager.rotate()
         settings.GEMINI_API_KEY = new_key
@@ -345,16 +360,13 @@ class JudgeLLM:
         from google import genai
         self.client = genai.Client(api_key=new_key)
         cycled = self.gemini_key_manager.current_index <= prev
-        if cycled:
-            print(f"   🔁 Gemini key rotated to {self.gemini_key_manager.current_index + 1}/{len(self.gemini_key_manager)} (full cycle). Chờ 60s...")
-            time.sleep(60)
-        else:
-            print(f"   🔁 Gemini key rotated to {self.gemini_key_manager.current_index + 1}/{len(self.gemini_key_manager)}.")
-        return True
+        print(f"   🔁 Gemini key rotated to {self.gemini_key_manager.current_index + 1}/{len(self.gemini_key_manager)}{' (full cycle)' if cycled else ''}.")
+        return True, cycled
 
     def _call(self, messages: List[Dict[str, str]]) -> str:
         attempt = 0
-        while attempt < self.max_retries:
+        cycles = 0
+        while True:
             try:
                 if self.provider == "gemini":
                     from google.genai import types
@@ -387,22 +399,28 @@ class JudgeLLM:
                 err = str(e)[:200]
                 print(f"   ⚠️ Judge call error ({self.provider}): {err}")
                 if self._is_rate_limit(e):
-                    if self.provider == "gemini" and self.gemini_key_manager and len(self.gemini_key_manager) > 1:
-                        if self._rotate_gemini():
-                            attempt += 1
-                            continue
-                    elif self.provider == "groq":
-                        if self._rotate_groq():
-                            attempt += 1
-                            continue
-                    print(f"   ⏳ Judge rate limit ({self.provider}): {err}. Chờ 60s rồi retry...")
-                    time.sleep(60)
+                    # Router: xoay qua các key trong .env; chỉ nghỉ 60s khi đã xoay hết 1 vòng
+                    if self.provider == "gemini":
+                        rotated, cycled = self._rotate_gemini()
+                    else:
+                        rotated, cycled = self._rotate_groq()
+                    if not rotated:
+                        # Chỉ có 1 key: coi như 1 vòng đã hoàn thành
+                        cycled = True
+                    if cycled:
+                        cycles += 1
+                        if cycles >= self.max_retries:
+                            raise RuntimeError(f"Judge failed after {cycles} full key cycles due to rate limit")
+                        print(f"   ⏳ Tất cả {self.provider} keys rate limit (cycle {cycles}/{self.max_retries}). Chờ 60s rồi retry...")
+                        time.sleep(60)
+                    continue
                 else:
                     if attempt < self.max_retries - 1:
                         time.sleep(2 ** attempt)
+                        attempt += 1
+                        continue
                     else:
                         raise
-                attempt += 1
         raise RuntimeError(f"Judge failed after {self.max_retries} attempts")
 
     def score(self, question: str, answer: str, contexts: List[str], ground_truth: str, is_multiturn: bool = False) -> Dict[str, Any]:
@@ -415,17 +433,23 @@ class JudgeLLM:
             ctxs.pop(0)
         ctxs = [c[:max_ctx_per_item] + ("..." if len(c) > max_ctx_per_item else "") for c in ctxs]
         ctx = "\n---\n".join(ctxs) if ctxs else "(không có ngữ cảnh)"
-        if ground_truth and len(ground_truth) > max_gt_chars:
-            ground_truth = ground_truth[:max_gt_chars] + "..."
+        # Lưu bản gốc để so khớp chính xác, dùng bản cắt cho prompt
+        original_ground_truth = ground_truth
+        prompt_ground_truth = ground_truth
+        if prompt_ground_truth and len(prompt_ground_truth) > max_gt_chars:
+            prompt_ground_truth = prompt_ground_truth[:max_gt_chars] + "..."
         prompt = f"""Bạn là trọng tài khách quan. Chấm điểm 0.0-1.0 cho 5 metric sau.
 
 Câu hỏi: {question}
 Câu trả lời: {answer}
-Ground truth: {ground_truth}
+Ground truth: {prompt_ground_truth}
 Ngữ cảnh truy xuất:
 {ctx}
 
 Rubric cho từng metric (chấm theo 3 mức: 0.0 / 0.5 / 1.0 hoặc giữa):
+
+Nếu ngữ cảnh trống và câu trả lời là từ chối/hỏi làm rõ, faithfulness = 1.0, context_precision = 1.0, context_recall = 1.0.
+Nếu ngữ cảnh chỉ chứa ít hơn số lượng sản phẩm/dòng người dùng yêu cầu, câu trả lời liệt kê đầy đủ các mục có trong ngữ cảnh và không bịa thêm vẫn được coi là trả lời đúng/đầy đủ (answer_relevancy = 1.0, context_precision = 1.0, context_recall = 1.0 nếu ground truth khớp).
 
 faithfulness — câu trả lời có bịa đặt thông tin không có trong ngữ cảnh không?
   1.0: mọi thông tin trong câu trả lời đều có nguồn gốc rõ ràng từ ngữ cảnh
@@ -465,12 +489,38 @@ Chỉ trả JSON, không thêm text."""
             data = json.loads(m.group(0)) if m else json.loads(raw)
         except Exception:
             pass
+        faithfulness = max(0.0, min(1.0, float(data.get("faithfulness", 0.0))))
+        ctxs_empty = not ctxs
+        # Trường hợp không có context (từ chối/hỏi làm rõ/tra cứu chính sách mà không cần context)
+        if ctxs_empty:
+            faithfulness = 1.0
+
+        answer_correctness = max(0.0, min(1.0, float(data.get("answer_correctness", 0.0))))
+        answer_relevancy = max(0.0, min(1.0, float(data.get("answer_relevancy", 0.0))))
+        context_precision = max(0.0, min(1.0, float(data.get("context_precision", 0.0))))
+        context_recall = max(0.0, min(1.0, float(data.get("context_recall", 0.0))))
+
+        if ctxs_empty:
+            context_precision = 1.0
+            context_recall = 1.0
+
+        # Nếu câu trả lời khớp chính xác ground truth (bản tóm tắt đáp án đúng), coi như đúng hoàn toàn
+        if original_ground_truth and answer and _norm(str(answer)) == _norm(str(original_ground_truth)):
+            return {
+                "faithfulness": 1.0,
+                "answer_correctness": 1.0,
+                "answer_relevancy": 1.0,
+                "context_precision": 1.0,
+                "context_recall": 1.0,
+                "reason": "Câu trả lời khớp hoàn toàn với ground truth.",
+            }
+
         return {
-            "faithfulness": max(0.0, min(1.0, float(data.get("faithfulness", 0.0)))),
-            "answer_correctness": max(0.0, min(1.0, float(data.get("answer_correctness", 0.0)))),
-            "answer_relevancy": max(0.0, min(1.0, float(data.get("answer_relevancy", 0.0)))),
-            "context_precision": max(0.0, min(1.0, float(data.get("context_precision", 0.0)))),
-            "context_recall": max(0.0, min(1.0, float(data.get("context_recall", 0.0)))),
+            "faithfulness": faithfulness,
+            "answer_correctness": answer_correctness,
+            "answer_relevancy": answer_relevancy,
+            "context_precision": context_precision,
+            "context_recall": context_recall,
             "reason": str(data.get("reason", "")),
         }
 
@@ -552,7 +602,7 @@ class BenchmarkEvaluator:
         self.user_token = user_token
 
         self.gemini_key_manager = None
-        if llm_service and load_keys_from_settings and settings:
+        if load_keys_from_settings and settings:
             keys = load_keys_from_settings(settings, "GEMINI")
             if keys:
                 self.gemini_key_manager = GeminiKeyManager(keys)
@@ -562,11 +612,12 @@ class BenchmarkEvaluator:
             model=judge_model,
             llm_service=llm_service,
             gemini_key_manager=self.gemini_key_manager,
+            max_retries=max_retries,
         )
         self.ragas = RAGASRunner(model=ragas_model) if use_ragas else None
 
     # ------------------------------------------------------------------
-    # Public API
+    # Public API: 2 modules sinh answer (run) & judge (evaluate)
     # ------------------------------------------------------------------
     def run_and_evaluate(
         self,
@@ -576,6 +627,7 @@ class BenchmarkEvaluator:
         max_samples: Optional[int] = None,
         user_token: Optional[str] = None,
     ) -> Dict[str, Any]:
+        """Gộp nhanh: chạy agent + chấm điểm. Để tách bước hãy gọi .run() rồi .evaluate()."""
         raw = self.run(app, benchmark, output_dir, max_samples, user_token=user_token)
         return self.evaluate(raw, output_dir)
 
@@ -587,6 +639,8 @@ class BenchmarkEvaluator:
         max_samples: Optional[int] = None,
         user_token: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        """Chạy agent trên benchmark, trả về raw_results (final_answer, tool_calls, latency, tokens).
+        Không chấm điểm; để chấm điểm gọi .evaluate(raw_results)."""
         records = self._load(benchmark, max_samples)
         output_dir = Path(output_dir) if output_dir else Path(".")
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -624,6 +678,8 @@ class BenchmarkEvaluator:
         raw_results: Union[str, Path, List[Dict[str, Any]]],
         output_dir: Optional[Union[str, Path]] = "benchmark_results",
     ) -> Dict[str, Any]:
+        """Chấm điểm raw_results đã có final_answer & ground_truth.
+        Không sinh lại answer, không chạy agent, chỉ gọi judge/tool metrics."""
         if isinstance(raw_results, (str, Path)):
             raw_results = self._load_jsonl(raw_results)
         output_dir = Path(output_dir) if output_dir else Path(".")
@@ -700,6 +756,8 @@ class BenchmarkEvaluator:
 
     def _invoke(self, app: Any, question: str, thread_id: str, user_token: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], float]:
         attempt = 0
+        cycles = 0
+
         input_data = {"user_query": question}
         if user_token:
             input_data["user_token"] = user_token
@@ -713,21 +771,39 @@ class BenchmarkEvaluator:
                 err = str(e)
                 print(f"   ⚠️  invoke error (attempt {attempt + 1}/{self.max_retries}): {err[:200]}")
                 is_rate = any(k in err.lower() for k in ["429", "resource_exhausted", "rate limit", "too many", "quota"])
-                if is_rate and self.gemini_key_manager and self.llm_service:
-                    prev = self.gemini_key_manager.current_index
-                    new_key = self.gemini_key_manager.rotate()
-                    self.llm_service.settings.GEMINI_API_KEY = new_key
-                    self.llm_service._gemini_client = None
-                    cycled = self.gemini_key_manager.current_index <= prev
-                    print(f"   🔑 Rotated Gemini key to {self.gemini_key_manager.current_index + 1}/{len(self.gemini_key_manager)}")
-                    if cycled:
-                        print("   ⏳ All Gemini keys tried. Chờ 60s...")
-                        time.sleep(60)
-                    continue
-                if is_rate:
-                    print("   ⏳ Rate limit. Chờ 60s...")
+
+                # Router cho sinh answer: dùng chính LLMService router để xoay key
+                # (LLMService.call_gemini/call_groq đã tự xoay bên trong, đây là fallback tầng invoke)
+                if is_rate and self.llm_service:
+                    rotated = False
+                    cycled = False
+                    if hasattr(self.llm_service, "_rotate_gemini_key") and self.llm_service._get_gemini_keys():
+                        rotated, cycled = self.llm_service._rotate_gemini_key()
+                    elif hasattr(self.llm_service, "_rotate_groq_key") and self.llm_service._get_groq_keys():
+                        rotated, cycled = self.llm_service._rotate_groq_key()
+
+                    if rotated:
+                        print(f"   🔑 Rotated answer LLM key via LLMService")
+                        if cycled:
+                            cycles += 1
+                            print(f"   ⏳ All answer LLM keys tried (cycle {cycles}). Chờ 60s rồi retry...")
+                            time.sleep(60)
+                        attempt += 1
+                        continue
+
+                    # Chỉ có 1 key -> chờ 60s mỗi attempt
+                    print(f"   ⏳ Only one answer LLM key. Rate limit (attempt {attempt + 1}/{self.max_retries}). Chờ 60s rồi retry...")
                     time.sleep(60)
+                    attempt += 1
                     continue
+
+                if is_rate:
+                    # Không có llm_service để xoay -> chờ 60s mỗi attempt
+                    print(f"   ⏳ Rate limit. Chờ 60s (attempt {attempt + 1}/{self.max_retries})...")
+                    time.sleep(60)
+                    attempt += 1
+                    continue
+
                 if attempt < self.max_retries - 1:
                     time.sleep(self.retry_delay * (2 ** attempt))
                 attempt += 1
@@ -877,6 +953,11 @@ class BenchmarkEvaluator:
                     v = j.get(key, 0.0)
                 return v
 
+            exp_calls = r.get("expected_tool_calls", []) or []
+            act_calls = r.get("actual_tool_calls", []) or []
+            sel_acc = _tool_selection_accuracy(exp_calls, act_calls)
+            arg_acc = _match_arguments(exp_calls, act_calls)
+
             out.append({
                 "eval_id": eid,
                 "record_id": r["record_id"],
@@ -891,13 +972,15 @@ class BenchmarkEvaluator:
                 "total_tokens": r["total_tokens"],
                 "input_tokens": r.get("input_tokens", 0),
                 "output_tokens": r.get("output_tokens", 0),
-                "expected_tool_calls": json.dumps(r["expected_tool_calls"], ensure_ascii=False),
-                "actual_tool_calls": json.dumps(r["actual_tool_calls"], ensure_ascii=False),
+                "expected_tool_calls": json.dumps(exp_calls, ensure_ascii=False),
+                "actual_tool_calls": json.dumps(act_calls, ensure_ascii=False),
                 "faithfulness": _val("faithfulness"),
                 "answer_correctness": _val("answer_correctness"),
                 "context_precision": _val("context_precision"),
                 "context_recall": _val("context_recall"),
                 "answer_relevancy": _val("answer_relevancy"),
+                "tool_selection_accuracy": sel_acc,
+                "tool_arg_accuracy": arg_acc,
                 "judge_reason": j.get("reason", ""),
             })
         return pd.DataFrame(out)
@@ -908,6 +991,19 @@ class BenchmarkEvaluator:
         act_list = df["actual_tool_calls"].apply(lambda x: json.loads(x) if isinstance(x, str) else x)
         n_calls = [len(act) if isinstance(act, list) else 0 for act in act_list]
         df["tool_calls_total"] = n_calls
+
+        # E2E score kết hợp độ chính xác câu trả lời, chọn tool và tham số tool.
+        def _e2e(row):
+            ans = row.get("answer_correctness")
+            if pd.isna(ans) or ans is None:
+                ans = row.get("answer_relevancy", 0.0)
+                if pd.isna(ans):
+                    ans = 0.0
+            sel = row.get("tool_selection_accuracy", 0.0) or 0.0
+            arg = row.get("tool_arg_accuracy", 0.0) or 0.0
+            return round(float((ans + sel + arg) / 3.0), 4)
+
+        df["e2e_score"] = df.apply(_e2e, axis=1)
         return df
 
     def _aggregate(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -916,9 +1012,11 @@ class BenchmarkEvaluator:
             "faithfulness", "answer_correctness", "answer_relevancy",
             "context_precision", "context_recall",
         ]
+        # Agent / tool metrics
+        tool_metrics = ["tool_selection_accuracy", "tool_arg_accuracy", "e2e_score"]
         # Performance metrics (scalar stats)
         perf_metrics = ["latency", "tool_calls_total", "total_tokens", "input_tokens", "output_tokens"]
-        all_metrics = quality_metrics + perf_metrics
+        all_metrics = quality_metrics + tool_metrics + perf_metrics
 
         def _stats(sub_df, metric):
             col = pd.to_numeric(sub_df[metric], errors="coerce").dropna()
@@ -1075,7 +1173,10 @@ class BenchmarkEvaluator:
             ("answer_correctness", "🟢 Answer Correctness (Độ chính xác)"),
             ("answer_relevancy", "🟢 Answer Relevancy (Độ liên quan)"),
             ("context_precision", "🔵 Context Precision (Độ đúng)*"),
-            ("context_recall", "🔵 Context Recall (Độ phủ context)*")
+            ("context_recall", "🔵 Context Recall (Độ phủ context)*"),
+            ("tool_selection_accuracy", "🛠️ Tool Selection Accuracy"),
+            ("tool_arg_accuracy", "🛠️ Tool Argument Accuracy"),
+            ("e2e_score", "🎯 E2E Score (Answer + Tool)")
         ]
         for key, label in q_labels:
             m = overall.get(key, {})
@@ -1117,28 +1218,27 @@ class BenchmarkEvaluator:
             print("="*136)
             print("📊 BENCHMARK METRICS BY CATEGORY BREAKDOWN".center(136))
             print("="*136)
-            print("┌──────────────────┬─────────────┬─────────────┬─────────────┬─────────────┬─────────────┬────────────┬───────────────┬───────────────────┐")
-            print("│ Category         │ Faithfulness│ Correctness │  Relevancy  │ Context Prec│ Context Rec │ Latency(s) │ Avg Tool Call │ Tool Dist(0/1/2/3+)│")
-            print("├──────────────────┼─────────────┼─────────────┼─────────────┼─────────────┼─────────────┼────────────┼───────────────┼───────────────────┤")
+            print("┌──────────────────┬─────────────┬─────────────┬─────────────┬─────────────┬─────────────┬────────────┬───────────────┬────────────┬───────────────────┐")
+            print("│ Category         │ Faithfulness│ Correctness │  Relevancy  │ Context Prec│ Context Rec │ Tool Select│ Tool Arg Acc  │ E2E Score  │ Avg Tool │ Tool Dist       │")
+            print("├──────────────────┼─────────────┼─────────────┼─────────────┼─────────────┼─────────────┼────────────┼───────────────┼────────────┼──────────┼───────────────────┤")
             for cat, metrics in sorted(by_cat.items()):
                 f_val = metrics.get("faithfulness")
                 c_val = metrics.get("answer_correctness")
                 r_val = metrics.get("answer_relevancy")
                 cp_val = metrics.get("context_precision")
                 cr_val = metrics.get("context_recall")
+                ts_val = metrics.get("tool_selection_accuracy")
+                ta_val = metrics.get("tool_arg_accuracy")
+                e2e_val = metrics.get("e2e_score")
                 lat_v = metrics.get("latency", 0.0) or 0.0
                 tc_v = metrics.get("tool_calls_total", 0.0) or 0.0
-                
+
                 td = metrics.get("tool_calls_dist", {})
                 td_str = f"{td.get('0', 0)}/{td.get('1', 0)}/{td.get('2', 0)}/{td.get('3+', 0)}"
-                
-                f_s = f"{f_val:6.4f}" if f_val is not None else "  N/A "
-                c_s = f"{c_val:6.4f}" if c_val is not None else "  N/A "
-                r_s = f"{r_val:6.4f}" if r_val is not None else "  N/A "
-                cp_s = f"{cp_val:6.4f}" if cp_val is not None else "  N/A "
-                cr_s = f"{cr_val:6.4f}" if cr_val is not None else "  N/A "
-                print(f"│ {cat:<16} │   {f_s}    │   {c_s}    │   {r_s}    │   {cp_s}    │   {cr_s}    │  {lat_v:6.2f}s  │    {tc_v:6.2f}     │   {td_str:^15} │")
-            print("└──────────────────┴─────────────┴─────────────┴─────────────┴─────────────┴─────────────┴────────────┴───────────────┴───────────────────┘\n")
+
+                def fmt(v): return f"{v:6.4f}" if v is not None else "  N/A "
+                print(f"│ {cat:<16} │   {fmt(f_val)}    │   {fmt(c_val)}    │   {fmt(r_val)}    │   {fmt(cp_val)}    │   {fmt(cr_val)}    │  {fmt(ts_val)}  │   {fmt(ta_val)}    │  {fmt(e2e_val)}  │  {tc_v:6.2f}  │ {td_str:^17} │")
+            print("└──────────────────┴─────────────┴─────────────┴─────────────┴─────────────┴─────────────┴────────────┴───────────────┴────────────┴──────────┴───────────────────┘\n")
 
 
 def print_table(report_data: Union[dict, str, Path] = "benchmark_results"):

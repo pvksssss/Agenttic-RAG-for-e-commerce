@@ -22,6 +22,33 @@ from configs.GetConfig import config
 
 from src.h_evaluation.key_manager import GeminiKeyManager, load_keys_from_settings
 
+try:
+    from src.c_retrieval.product_retriever import ProductRetriever
+except Exception:
+    ProductRetriever = None  # type: ignore
+
+try:
+    from src.d_tools.product.product_search import product_search as tool_product_search
+except Exception:
+    tool_product_search = None  # type: ignore
+
+try:
+    from src.d_tools.product.product_compare import product_compare as tool_product_compare
+except Exception:
+    tool_product_compare = None  # type: ignore
+
+try:
+    from src.d_tools.account.order_lookup import order_lookup as tool_order_lookup
+except Exception:
+    tool_order_lookup = None  # type: ignore
+
+try:
+    from app.core.security import supabase_admin_client, get_user_supabase_client, verify_supabase_jwt
+except Exception:
+    supabase_admin_client = None  # type: ignore
+    get_user_supabase_client = None  # type: ignore
+    verify_supabase_jwt = None  # type: ignore
+
 
 # ---------------------------------------------------------------------------
 # Helpers trích xuất dòng máy
@@ -31,7 +58,7 @@ def _is_spec_token(tok: str) -> bool:
         return True
     if re.match(r"^\d{4}$", tok):
         return True
-    if re.match(r"\bM\d+\b", tok, re.I):  # Apple M1/M2/M3...
+    if re.match(r"\bM\d+\b", tok, re.I):
         return True
     if re.match(r"\b\d+(CPU|GPU|GB|TB|MB|inch|Hz|Wh|W)\b", tok, re.I):
         return True
@@ -42,21 +69,38 @@ def _is_spec_token(tok: str) -> bool:
     return False
 
 
-def extract_product_line(name: str) -> str:
-    """Cắt phần tên dòng máy trước các token thông số/mã SKU/chip gen."""
-    tokens = name.split()
-    cut = len(tokens)
-    for i, tok in enumerate(tokens):
-        if _is_spec_token(tok):
-            cut = min(cut, i)
-            if cut == i:
+try:
+    from src.d_tools.product.product_search import _extract_product_line as extract_product_line
+except Exception:  # pragma: no cover - fallback khi chưa có tool search
+    def extract_product_line(name: str) -> str:
+        """Cắt phần tên dòng máy trước các token thông số/mã SKU/chip gen."""
+        tokens = name.split()
+        cut = len(tokens)
+        for i, tok in enumerate(tokens):
+            if re.search(r"\d+\s?(CPU|GPU|GB|TB|MB|inch|Hz|Wh|W)\b", tok, re.I):
+                cut = i
                 break
-    line = " ".join(tokens[:cut]).strip(" -|,")
-    return line or name
+            if re.match(r"^\d{4}$", tok):
+                cut = i
+                break
+            if re.match(r"\bM\d+\b", tok, re.I):
+                cut = i
+                break
+            if re.match(r"\b\d+(CPU|GPU|GB|TB|MB|inch|Hz|Wh|W)\b", tok, re.I):
+                cut = i
+                break
+            if re.match(r"[A-Za-z0-9-]{6,}\d", tok):
+                cut = i
+                break
+            if re.match(r"\d+[A-Za-z0-9-]{4,}", tok):
+                cut = i
+                break
+        line = " ".join(tokens[:cut]).strip(" -|,")
+        return line or name
 
 
 def _normalize_line_key(line: str, brand: Optional[str] = None, n_tokens: int = 2) -> str:
-    """Trích phần đại diện dòng máy để dùng name_contains."""
+    """Trích phần đại diện dòng máy để dùng name_contains (rút gọn theo n_tokens)."""
     line = line.strip()
     for w in ["Laptop", "Máy tính xách tay", "Điện thoại", "Mobile", "Smartphone"]:
         if line.lower().startswith(w.lower()):
@@ -76,6 +120,17 @@ def _normalize_line_key(line: str, brand: Optional[str] = None, n_tokens: int = 
     if not res:
         res = tokens[:n_tokens]
     return " ".join(res)
+
+
+def _clean_line_key(line: str, brand: Optional[str] = None, category: Optional[str] = None) -> str:
+    """Trả về tên dòng sạch để dùng name_contains, giữ nguyên tên dòng đầy đủ (không cắt theo spec)."""
+    line = line.strip()
+    for w in ["Laptop", "Máy tính xách tay", "Điện thoại", "Mobile", "Smartphone"]:
+        if line.lower().startswith(w.lower()):
+            line = line[len(w):].strip()
+    if brand and line.lower().startswith(brand.lower()):
+        line = line[len(brand):].strip()
+    return line
 
 
 def price_to_million(vnd: Optional[float]) -> Optional[float]:
@@ -182,14 +237,29 @@ class ProductCatalog:
 
     def _load(self) -> List[Dict[str, Any]]:
         q = self.client.table("products").select(
-            "id, name, brand, category, price, final_price, stock, cpu, ram, storage, display_size, battery, description, specs"
+            "id, name, brand, category, price, final_price, stock, sku, discount, cpu, ram, storage, display_size, battery, description, specs"
         )
+        batch_size = 1000
         if self.limit:
             q = q.limit(self.limit)
-        resp = q.execute()
-        data = resp.data or []
+            resp = q.execute()
+            data = resp.data or []
+        else:
+            data: List[Dict[str, Any]] = []
+            start = 0
+            while True:
+                resp = q.range(start, start + batch_size - 1).execute()
+                batch = resp.data or []
+                if not batch:
+                    break
+                data.extend(batch)
+                if len(batch) < batch_size:
+                    break
+                start += batch_size
         for p in data:
             p["line"] = extract_product_line(p.get("name", ""))
+        data.sort(key=lambda x: x.get("id") or 0)
+        self.id_map = {p["id"]: p for p in data}
         return data
 
     def sample_product(self, brand: Optional[str] = None, category: Optional[str] = None, line: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -250,7 +320,10 @@ class ProductCatalog:
                 if matched:
                     pool = matched
         reverse = not ascending
-        pool.sort(key=lambda x: (x.get(sort_by) or 0), reverse=reverse)
+        pool.sort(
+            key=lambda x: (x.get(sort_by) or 0, x.get("id") or 0),
+            reverse=reverse,
+        )
         if limit is not None:
             pool = pool[:limit]
         return pool
@@ -292,10 +365,23 @@ class EcommerceBenchmarkGenerator:
         llm: Optional[GeminiLLM] = None,
         product_limit: Optional[int] = None,
         seed: Optional[int] = None,
+        user_token: Optional[str] = None,
+        current_user_id: Optional[str] = None,
     ):
         self.catalog = catalog or ProductCatalog(limit=product_limit)
         self.llm = llm or GeminiLLM()
         self._counter = 0
+        self.user_token = user_token
+        self.current_user_id = current_user_id
+        if self.user_token and not self.current_user_id and verify_supabase_jwt:
+            try:
+                self.current_user_id = verify_supabase_jwt(self.user_token)
+            except Exception:
+                pass
+        if ProductRetriever is not None:
+            self.retriever = ProductRetriever(config=config, settings=settings)
+        else:
+            self.retriever = None
         if seed is not None:
             random.seed(seed)
 
@@ -303,36 +389,126 @@ class EcommerceBenchmarkGenerator:
         self._counter += 1
         return f"{category}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{self._counter:04d}"
 
+    def _parse_search_id(self, out: str) -> Optional[int]:
+        m = re.search(r"^-\s*ID:\s*(\d+)", out, re.MULTILINE)
+        if m:
+            return int(m.group(1))
+        return None
+
+    def _parse_compare_ids(self, out: str) -> List[int]:
+        ids = []
+        for m in re.finditer(r"Product:.*?\|\s*ID:\s*(\d+)", out):
+            ids.append(int(m.group(1)))
+        return ids
+
+    def _resolve_by_tool_search(self, q: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Chạy thật product_search với 1 query, trả về product dict từ catalog nếu có ID."""
+        if tool_product_search is None:
+            return None
+        try:
+            out = tool_product_search([q])
+            pid = self._parse_search_id(out)
+            if pid:
+                return self.catalog.id_map.get(pid)
+        except Exception as e:
+            print(f"[WARN] tool_product_search failed: {e}")
+        return None
+
+    def _resolve_by_tool_compare(self, names: List[str]) -> List[Dict[str, Any]]:
+        """Chạy thật product_compare, trả về danh sách product dict từ catalog theo ID."""
+        products: List[Dict[str, Any]] = []
+        if tool_product_compare is None:
+            return products
+        try:
+            out = tool_product_compare(names)
+            ids = self._parse_compare_ids(out)
+            for pid in ids:
+                prod = self.catalog.id_map.get(pid)
+                if prod:
+                    products.append(prod)
+        except Exception as e:
+            print(f"[WARN] tool_product_compare failed: {e}")
+        return products
+
+    def _fetch_user_orders(self) -> List[Dict[str, Any]]:
+        """Lấy danh sách đơn hàng thật của user qua user_token hoặc admin fallback."""
+        orders: List[Dict[str, Any]] = []
+        if not self.current_user_id:
+            return orders
+
+        def _query(client):
+            return (
+                client.table("orders")
+                .select("id, status, total, created_at, items")
+                .eq("user_id", self.current_user_id)
+                .order("created_at", desc=True)
+                .limit(20)
+                .execute()
+            )
+
+        if self.user_token and get_user_supabase_client:
+            try:
+                db_client = get_user_supabase_client(self.user_token)
+                response = _query(db_client)
+                orders = response.data or []
+                if orders:
+                    return orders
+            except Exception as e:
+                print(f"[WARN] Dynamic user client failed, fallback to admin: {e}")
+
+        if supabase_admin_client:
+            try:
+                response = _query(supabase_admin_client)
+                orders = response.data or []
+            except Exception as e:
+                print(f"[WARN] Không thể lấy đơn hàng user: {e}")
+        return orders
+
     def _format_price(self, vnd: float) -> str:
         return f"{vnd:,.0f} VND".replace(",", ".")
 
-    def _make_ground_truth_summary(self, products: List[Dict[str, Any]], mode: str = "rank") -> str:
+    def _make_ground_truth_summary(self, products: List[Dict[str, Any]], mode: str = "rank", include_details: bool = True, need_price_info: bool = False) -> str:
         if not products:
             return "Không tìm thấy sản phẩm phù hợp."
+
+        def _price_and_specs(p: Dict[str, Any]) -> str:
+            price = self._format_price(p.get("final_price", 0) or 0)
+            if not include_details and not need_price_info:
+                return ""
+            parts = [price]
+            if include_details:
+                chip = p.get("cpu") or ""
+                ram = p.get("ram") or ""
+                storage = p.get("storage") or ""
+                screen = p.get("display_size") or ""
+                pin = p.get("battery") or ""
+                specs = ", ".join([s for s in [chip, ram, storage, screen, pin] if s])
+                if specs:
+                    parts.append(specs)
+            return " - ".join(parts)
+
         if mode == "lines":
             lines = []
             seen = set()
             for p in products:
-                ln = p["line"]
+                ln = (p.get("line") or "").lower()
                 if ln not in seen:
                     seen.add(ln)
-                    lines.append(f"{ln} ({self._format_price(p.get('final_price', 0))})")
+                    suffix = _price_and_specs(p)
+                    lines.append(f"{p['line']}" + (f" ({suffix})" if suffix else ""))
             return "; ".join(lines)
+
         parts = []
         for p in products:
-            chip = p.get("cpu") or ""
-            ram = p.get("ram") or ""
-            storage = p.get("storage") or ""
-            screen = p.get("display_size") or ""
-            pin = p.get("battery") or ""
-            specs = ", ".join([s for s in [chip, ram, storage, screen, pin] if s])
-            parts.append(f"{p['name']} - {self._format_price(p.get('final_price', 0))}" + (f" [{specs}]" if specs else ""))
+            suffix = _price_and_specs(p)
+            parts.append(f"{p['name']}" + (f" - {suffix}" if suffix else ""))
         return "; ".join(parts)
 
     def _representative_per_line(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        # Nhóm không phân biệt hoa thường để khớp product_search
         seen = {}
-        for p in sorted(products, key=lambda x: x.get("final_price") or float("inf")):
-            ln = p["line"]
+        for p in sorted(products, key=lambda x: (x.get("final_price") or float("inf"), x.get("id") or 0)):
+            ln = (p.get("line") or "").lower()
             if ln not in seen:
                 seen[ln] = p
         return list(seen.values())
@@ -383,31 +559,53 @@ class EcommerceBenchmarkGenerator:
     def _random_quantity(self, max_n: int = 10) -> int:
         return random.randint(1, max_n)
 
-    def _random_price_expr(self, brand: Optional[str] = None, category: Optional[str] = None, name_contains: Optional[str] = None) -> Dict[str, Any]:
-        mn, mx = self.catalog.price_range(brand=brand, category=category, name_contains=name_contains)
+    def _random_price_expr(
+        self,
+        brand: Optional[str] = None,
+        category: Optional[str] = None,
+        name_contains: Optional[str] = None,
+        min_price: Optional[float] = None,
+        max_price: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Sinh biểu thức giá dựa trên dải giá thực tế của sản phẩm phù hợp.
+
+        Nếu `min_price`/`max_price` được truyền, dùng chúng thay vì tự tính từ catalog.
+        Tránh ép sàn cứng (VD 5 triệu) khi phân khúc rẻ, và tránh sinh khoảng giá
+        không khớp với bất kỳ sản phẩm nào.
+        """
+        if min_price is None or max_price is None:
+            mn, mx = self.catalog.price_range(brand=brand, category=category, name_contains=name_contains)
+        else:
+            mn, mx = min_price, max_price
         if mn is None or mx is None:
             mn, mx = 0.0, 50_000_000.0
-        # Làm tròn để có giá đẹp
         low_mil = max(0, int(mn / 1_000_000))
-        high_mil = max(low_mil + 5, int(mx / 1_000_000) + 1)
-        # Vẫn giữ mục đích ban đầu (đảm bảo khoảng đủ rộng để random "đẹp số"),
-        # nhưng không được đẩy low_mil vượt quá phân khúc giá thật
+        high_mil = max(low_mil + 1, int(mx / 1_000_000) + 1)
         if high_mil - low_mil < 3:
             low_mil = max(0, high_mil - 3)
-        expr = random.choice(["under", "between", "over", "around", "none"])
+        span = high_mil - low_mil
+        exprs = ["none"]
+        if span >= 1:
+            exprs.append("under")
+        if span >= 2:
+            exprs.append("around")
+        if span >= 3:
+            exprs.append("over")
+            exprs.append("between")
+        expr = random.choice(exprs)
         if expr == "under":
-            x = random.randint(low_mil, high_mil)
+            x = random.randint(max(1, low_mil), high_mil)
             return {"expr": "under", "text": f"dưới {x} triệu", "min_price": None, "max_price": x * 1_000_000}
         if expr == "over":
-            x = random.randint(low_mil, high_mil - 5)
+            x = random.randint(low_mil, max(low_mil + 1, high_mil - 1))
             return {"expr": "over", "text": f"trên {x} triệu", "min_price": x * 1_000_000, "max_price": None}
         if expr == "between":
-            a = random.randint(low_mil, high_mil - 5)
-            b = random.randint(a + 5, high_mil)
+            a = random.randint(low_mil, high_mil - 1)
+            b = random.randint(a + 1, high_mil)
             return {"expr": "between", "text": f"từ {a} đến {b} triệu", "min_price": a * 1_000_000, "max_price": b * 1_000_000}
         if expr == "around":
             x = random.randint(low_mil, high_mil)
-            return {"expr": "around", "text": f"khoảng {x} triệu", "min_price": max(0, x - 5) * 1_000_000, "max_price": (x + 5) * 1_000_000}
+            return {"expr": "around", "text": f"khoảng {x} triệu", "min_price": max(0, x - 2) * 1_000_000, "max_price": (x + 2) * 1_000_000}
         return {"expr": "none", "text": "", "min_price": None, "max_price": None}
 
     def _compose_questions(self, params_list: List[Dict[str, Any]], category: str, examples: Optional[List[str]] = None, batch_size: int = 5) -> List[str]:
@@ -443,6 +641,7 @@ class EcommerceBenchmarkGenerator:
             "- Mỗi câu phải KHÁC BIỆT về cấu trúc, từ ngữ, độ dài, cách mở đầu; KHÔNG lặp lại khuôn mẫu.",
             "- Phải phản ánh CHÍNH XÁC các tham số (brand, product_type/line, min_price/max_price, mode, limit...). Không tự ý đổi hãng, dòng máy hoặc khoảng giá so với JSON đầu vào.",
             "- Nếu params có 'brand', câu hỏi phải nêu đúng hãng đó. Nếu có 'line', phải nêu đúng dòng đó.",
+            "- Nếu params có 'extra' (nhu cầu như pin trâu, mỏng nhẹ, chơi game...), câu hỏi phải thể hiện rõ nhu cầu đó.",
             "- Phải tự nhiên như tin nhắn thật, có thể dùng teencode nhẹ, xưng hô đa dạng.",
             "- Chỉ trả về JSON có key 'questions' là list string.",
             "",
@@ -493,15 +692,28 @@ class EcommerceBenchmarkGenerator:
         return None
 
     def _tool_keyword(self, params: Dict[str, Any]) -> str:
-        """Sinh keyword hợp lệ cho product_search nếu bị thiếu."""
+        """Sinh keyword hợp lệ cho product_search nếu bị thiếu.
+
+        Khớp cách product_search tự xây keyword khi q.keyword trống:
+        "brand name_contains category".
+        """
         kw = params.get("keyword", "")
         if kw:
             return kw
-        for k in ["extra", "name_contains", "line", "product_name"]:
+        for k in ["extra", "product_name"]:
             if params.get(k):
                 return str(params[k]).split("\n")[0]
+        parts = []
+        if params.get("brand"):
+            parts.append(str(params["brand"]))
+        if params.get("name_contains"):
+            parts.append(str(params["name_contains"]))
+        elif params.get("line"):
+            parts.append(str(params["line"]))
         cat = self._tool_category(params)
-        return cat or "sản phẩm"
+        if cat:
+            parts.append(cat)
+        return " ".join(parts) if parts else "sản phẩm"
 
     def _product_search_call(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Tạo 1 query product_search từ params theo đúng schema tool."""
@@ -519,27 +731,67 @@ class EcommerceBenchmarkGenerator:
     def _resolve_products(self, params: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Trả về (products, representatives) từ catalog theo params.
 
-        Bao gồm lọc theo field `extra` (ngữ nghĩa: VD "mỏng nhẹ pin trâu", "chip mạnh")
-        để ground truth phản ánh đúng ý định thật của câu hỏi, không chỉ sort theo giá.
+        - Với mode='lines': dùng SQL filters + group theo dòng + chọn rẻ nhất mỗi dòng
+          (khớp cách product_search mode='lines' xử lý).
+        - Với mode='rank' hoặc không mode: dùng vector retrieval khi có từ khóa ngữ
+          nghĩa (extra/name_contains/line/product_name) để ground truth phản ánh đúng
+          thứ tự rerank của pipeline thật; ngược lại fallback sort theo giá.
         """
         category = self._tool_category(params)
-        products = self.catalog.products_by_filter(
+        # 1) Lấy candidate pool theo hard filters (không lọc extra bằng substring)
+        candidates = self.catalog.products_by_filter(
             brand=params.get("brand"),
             category=category,
             min_price=params.get("min_price"),
             max_price=params.get("max_price"),
             name_contains=params.get("name_contains"),
             line=params.get("line"),
-            extra=params.get("extra"),  # FIX: truyền extra để lọc theo ngữ nghĩa
-            sort_by="final_price",
-            ascending=True,
-            limit=50,
+            limit=None,
         )
         limit = params.get("limit") or 10
+        keyword = self._tool_keyword(params)
+
         if params.get("mode") == "lines":
-            reps = self._representative_per_line(products)[:limit]
+            # product_search mode=lines chỉ dùng SQL filters rồi nhóm theo dòng chọn rẻ nhất
+            reps = self._representative_per_line(candidates)[:limit]
             return (reps, reps)
-        return (products[:limit], [])
+
+        # 2) Rank mode: thử dùng vector retrieval để lấy đúng thứ tự semantic
+        has_semantic = bool(params.get("extra")) or bool(params.get("name_contains")) or bool(params.get("line")) or bool(params.get("product_name"))
+        if self.retriever and has_semantic and candidates and keyword:
+            try:
+                candidate_ids = [p["id"] for p in candidates if p.get("id")]
+                if candidate_ids:
+                    retrieved = self.retriever.retrieve(
+                        query_text=keyword,
+                        product_ids=candidate_ids,
+                        limit=limit,
+                    )
+                    products: List[Dict[str, Any]] = []
+                    seen_ids: Set[int] = set()
+                    for item in retrieved:
+                        if len(products) >= limit:
+                            break
+                        pid_raw = item["metadata"].get("product_id")
+                        if not pid_raw:
+                            continue
+                        try:
+                            pid = int(pid_raw)
+                        except (TypeError, ValueError):
+                            pid = pid_raw
+                        if pid in seen_ids:
+                            continue
+                        seen_ids.add(pid)
+                        prod = self.catalog.id_map.get(pid)
+                        if prod:
+                            products.append(prod)
+                    if products:
+                        return (products, [])
+            except Exception as e:
+                print(f"[WARN] Retrieval fallback due to: {e}")
+
+        # Fallback: sort theo giá rẻ nhất
+        return (candidates[:limit], [])
 
     def _build_record(self, params: Dict[str, Any], question: str, products: List[Dict[str, Any]], reps: List[Dict[str, Any]], expected: List[Dict[str, Any]], answer: str, contexts: Optional[List[str]] = None, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         product_ids = [p["id"] for p in products]
@@ -547,7 +799,12 @@ class EcommerceBenchmarkGenerator:
             product_ids = []
         ground_truth = {
             "product_ids": product_ids,
-            "answer_summary": answer or self._make_ground_truth_summary(products, mode=params.get("mode", "rank")),
+            "answer_summary": answer or self._make_ground_truth_summary(
+                products,
+                mode=params.get("mode", "rank"),
+                include_details=params.get("include_details", True),
+                need_price_info=params.get("need_price_info", False),
+            ),
         }
         if params.get("mode") == "lines":
             ground_truth["specs_per_line"] = {
@@ -674,6 +931,7 @@ class EcommerceBenchmarkGenerator:
                 "max_price": price["max_price"],
                 "limit": limit,
                 "mode": "lines",
+                "include_details": False,
                 "style": style,
                 "pronouns": pronouns,
             })
@@ -701,7 +959,7 @@ class EcommerceBenchmarkGenerator:
             if not line:
                 continue
             price = self._random_price_expr(brand=brand, category=category, name_contains=line)
-            line_key = _normalize_line_key(line, brand, n_tokens=3)
+            line_key = _clean_line_key(line, brand=brand, category=category)
             style = self._random_style()
             pronouns = self._random_pronouns()
             limit = self._random_quantity(6)
@@ -747,7 +1005,7 @@ class EcommerceBenchmarkGenerator:
             style = self._random_style()
             pronouns = self._random_pronouns()
             limit = self._random_quantity(8)
-            extra = random.choice(["", "mỏng nhẹ", "pin trâu", "chơi game", "văn phòng", "cấu hình cao", "giá rẻ"])
+            extra = random.choice(["mỏng nhẹ", "pin trâu", "chơi game", "văn phòng", "cấu hình cao", "giá rẻ"])
             params_list.append({
                 "category": "top_n",
                 "intent": "top n sản phẩm",
@@ -771,13 +1029,12 @@ class EcommerceBenchmarkGenerator:
         for param, q in zip(params_list, questions):
             products, _ = self._resolve_products(param)
             if not products:
-                # FIX: fallback cũng cần truyền extra
+                # Fallback: nếu retriever không trả về, dùng sắp xếp giá (không lọc extra substring)
                 products = self.catalog.products_by_filter(
                     brand=param["brand"],
                     category=param["product_type"],
                     min_price=param.get("min_price"),
                     max_price=param.get("max_price"),
-                    extra=param.get("extra"),
                     limit=param["limit"],
                 )
             expected = [self._product_search_call(param)]
@@ -804,18 +1061,23 @@ class EcommerceBenchmarkGenerator:
                 continue
             line1, line2 = random.sample(lines, 2)
             # Đảm bảo mỗi dòng có ít nhất 1 sản phẩm
-            lkey1 = _normalize_line_key(line1, brand, n_tokens=2)
-            lkey2 = _normalize_line_key(line2, brand, n_tokens=2)
+            lkey1 = _clean_line_key(line1, brand=brand, category=category)
+            lkey2 = _clean_line_key(line2, brand=brand, category=category)
             prods1 = self.catalog.products_by_filter(brand=brand, category=category, name_contains=lkey1, limit=1)
             prods2 = self.catalog.products_by_filter(brand=brand, category=category, name_contains=lkey2, limit=1)
             if not prods1 or not prods2:
                 continue
-            price = self._random_price_expr(brand=brand, category=category)
+            # Tính dải giá chung từ 2 dòng để đảm bảo mỗi dòng đều có sản phẩm trong khoảng giá
+            mn1, mx1 = self.catalog.price_range(brand=brand, category=category, name_contains=lkey1)
+            mn2, mx2 = self.catalog.price_range(brand=brand, category=category, name_contains=lkey2)
+            mn = min(mn1, mn2)
+            mx = max(mx1, mx2)
+            price = self._random_price_expr(min_price=mn, max_price=mx)
             limit = self._random_quantity(8)
             style = self._random_style()
             pronouns = self._random_pronouns()
-            line_key1 = _normalize_line_key(line1, brand, n_tokens=2)
-            line_key2 = _normalize_line_key(line2, brand, n_tokens=2)
+            line_key1 = lkey1
+            line_key2 = lkey2
             params_list.append({
                 "category": "combined_or",
                 "intent": "hoặc giữa 2 dòng",
@@ -836,7 +1098,8 @@ class EcommerceBenchmarkGenerator:
         ])
         results = []
         for param, q in zip(params_list, questions):
-            all_products = []
+            all_reps: List[Dict[str, Any]] = []
+            seen_lines: set = set()
             queries = []
             for line_key in param["line_keys"]:
                 sub = {
@@ -854,8 +1117,14 @@ class EcommerceBenchmarkGenerator:
                     sub["max_price"] = param["max_price"]
                 queries.append(sub)
                 prods = self.catalog.products_by_filter(brand=param["brand"], category=param["product_type"], name_contains=line_key, min_price=param.get("min_price"), max_price=param.get("max_price"))
-                all_products.extend(prods)
-            reps = self._representative_per_line(all_products)[:param["limit"]]
+                sub_reps = self._representative_per_line(prods)[:param["limit"]]
+                for r in sub_reps:
+                    lk = r.get("line", "").lower()
+                    if lk not in seen_lines:
+                        seen_lines.add(lk)
+                        all_reps.append(r)
+            # Mỗi query con trả về tối đa limit dòng, ground truth là hợp các dòng đại diện
+            reps = all_reps
             expected = [{"tool": "product_search", "args": {"queries": queries}}]
             results.append(self._build_record(param, q, reps, reps, expected, "", metadata={"lines": param["lines"], "brand": param["brand"]}))
         return results
@@ -898,7 +1167,8 @@ class EcommerceBenchmarkGenerator:
             chosen_products = [chosen_map[name] for name in param["product_names"] if name in chosen_map]
             product_ids = [p["id"] for p in chosen_products]
             expected = [{"tool": "product_compare", "args": {"product_names": param["product_names"]}}]
-            results.append(self._build_record(param, q, chosen_products, [], expected, f"So sánh {', '.join(param['product_names'])}", metadata={"product_names": param["product_names"], "product_ids": product_ids}))
+            ans = self._make_ground_truth_summary(chosen_products, mode="rank", include_details=True, need_price_info=False)
+            results.append(self._build_record(param, q, chosen_products, [], expected, ans, metadata={"product_names": param["product_names"], "product_ids": product_ids}))
         return results
 
     # ------------------------------------------------------------------
@@ -956,7 +1226,12 @@ class EcommerceBenchmarkGenerator:
                 if params.get(k) is not None:
                     self.filters[k] = params[k]
 
-        def resolve_products(self, catalog: ProductCatalog, params: Dict[str, Any], limit: int = 5):
+        def resolve_merged(self, params: Dict[str, Any]) -> Dict[str, Any]:
+            merged = dict(self.filters)
+            merged.update(params)
+            return merged
+
+        def resolve_products(self, catalog: ProductCatalog, generator: Any, params: Dict[str, Any], limit: int = 5):
             # Nếu lượt này tham chiếu sản phẩm trước, trả về từ last_products
             if params.get("ref") and self.last_products:
                 if params["ref"] == "top_2":
@@ -964,25 +1239,14 @@ class EcommerceBenchmarkGenerator:
                 if params["ref"] == "top_3":
                     return self.last_products[:3]
                 return self.last_products[:limit]
-            # Ngược lại tìm từ catalog với filter tích lũy
+            # Ngược lại tìm từ catalog với filter tích lũy, dùng vector retrieval nếu có từ khóa ngữ nghĩa
             merged = dict(self.filters)
             merged.update(params)
-            # FIX: truyền extra (ngữ nghĩa) để ground truth không chỉ là "N sản phẩm rẻ nhất"
-            # mà phản ánh đúng ý định khách hàng (VD: "mỏng nhẹ pin trâu", "chip mạnh")
-            prods = catalog.products_by_filter(
-                brand=merged.get("brand"),
-                category=merged.get("category"),
-                min_price=merged.get("min_price"),
-                max_price=merged.get("max_price"),
-                name_contains=merged.get("name_contains"),
-                line=merged.get("line"),
-                extra=merged.get("extra"),  # FIX: bổ sung extra
-                limit=50,
-            )
+            prods, _ = generator._resolve_products(merged)
             if params.get("mode") == "lines":
                 reps = []
                 seen = set()
-                for p in sorted(prods, key=lambda x: x.get("final_price") or float("inf")):
+                for p in sorted(prods, key=lambda x: (x.get("final_price") or float("inf"), x.get("id") or 0)):
                     if p["line"] not in seen:
                         seen.add(p["line"])
                         reps.append(p)
@@ -1156,15 +1420,17 @@ class EcommerceBenchmarkGenerator:
                 if "category" not in params:
                     params["category"] = cat
                 state.update(params)
-                products = state.resolve_products(self.catalog, params, limit=params.get("limit", 5))
-                if products:
+                merged = state.resolve_merged(params)
+                products = state.resolve_products(self.catalog, self, merged, limit=merged.get("limit", 5))
+                # Chỉ cập nhật danh sách sản phẩm gốc cho các lượt tìm kiếm/refine/lines
+                if products and turn["intent"] in ("search", "refine", "lines"):
                     state.last_products = products
                 # build expected tool call
-                exp = self._expected_for_multi_turn(turn["intent"], params, products)
+                exp = self._expected_for_multi_turn(turn["intent"], merged, products)
                 expected_per_turn.append(exp)
-                gt = self._ground_truth_for_multi_turn(turn["intent"], params, products)
+                gt = self._ground_truth_for_multi_turn(turn["intent"], merged, products, expected_call=exp)
                 ground_truth_per_turn.append(gt)
-                turns_data.append({"turn": tnum, "intent": turn["intent"], "hint": turn["hint"], "params": params})
+                turns_data.append({"turn": tnum, "intent": turn["intent"], "hint": turn["hint"], "params": merged})
             # build prompt for LLM to produce conversation
             prompt = self._build_multi_turn_prompt(sc, turns_data)
             raw = self.llm.generate(prompt, response_mime_type="application/json", max_tokens=1024)
@@ -1212,7 +1478,14 @@ class EcommerceBenchmarkGenerator:
             "Các lượt hội thoại (chỉ gợi ý nội dung, KHÔNG sao chép nguyên văn):",
         ]
         for t in turns:
-            lines.append(f"Lượt {t['turn']} ({t['intent']}): {t['hint']}")
+            p = t.get("params", {})
+            extra = p.get("extra", "")
+            price = p.get("max_price")
+            price_hint = ""
+            if price:
+                price_hint = f", giá tối đa khoảng {int(price/1_000_000)} triệu"
+            extra_hint = f" (ý định: {extra}{price_hint})" if extra or price_hint else ""
+            lines.append(f"Lượt {t['turn']} ({t['intent']}): {t['hint']}{extra_hint}")
         lines.append("JSON:")
         return "\n".join(lines)
 
@@ -1251,18 +1524,41 @@ class EcommerceBenchmarkGenerator:
             return {"tool": "policy_search", "args": {"key_word": params.get("keyword", "đổi trả")}}
         return None
 
-    def _ground_truth_for_multi_turn(self, intent: str, params: Dict[str, Any], products: List[Dict[str, Any]]) -> Dict[str, Any]:
-        ids = [p["id"] for p in products]
+    def _ground_truth_for_multi_turn(self, intent: str, params: Dict[str, Any], products: List[Dict[str, Any]], expected_call: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if intent == "stock_price":
-            ans = self._make_ground_truth_summary(products[:1])
+            target = products[:1]
+            if expected_call and tool_product_search:
+                q = expected_call["args"]["queries"][0]
+                resolved = self._resolve_by_tool_search(q)
+                if resolved:
+                    target = [resolved]
+            ans = self._make_ground_truth_summary(target, mode="rank", include_details=False, need_price_info=True)
         elif intent == "specs_of_previous":
-            ans = self._make_ground_truth_summary(products[:1])
+            target = products[:1]
+            if expected_call and tool_product_search:
+                q = expected_call["args"]["queries"][0]
+                resolved = self._resolve_by_tool_search(q)
+                if resolved:
+                    target = [resolved]
+            info = params.get("info", "")
+            include_details = info in ["chip", "ram", "bộ nhớ", "màn hình", "pin", "camera"]
+            need_price = info in ["giá", "tồn kho", "ưu đãi"]
+            ans = self._make_ground_truth_summary(target, mode="rank", include_details=include_details, need_price_info=need_price)
         elif intent == "compare":
-            ans = "So sánh " + " vs ".join(p["name"] for p in products[:3])
+            target = products[:3]
+            if expected_call and tool_product_compare:
+                names = expected_call["args"].get("product_names", [])
+                resolved = self._resolve_by_tool_compare(names)
+                if resolved:
+                    target = resolved
+            ans = self._make_ground_truth_summary(target, mode="rank", include_details=True, need_price_info=False)
         elif intent == "policy":
+            target = []
             ans = f"Tra cứu chính sách {params.get('keyword','')}"
         else:
-            ans = self._make_ground_truth_summary(products)
+            target = products
+            ans = self._make_ground_truth_summary(products, mode=params.get("mode", "rank"), include_details=False, need_price_info=False)
+        ids = [p["id"] for p in target]
         return {"product_ids": ids, "answer_summary": ans}
 
     # ------------------------------------------------------------------
@@ -1356,8 +1652,10 @@ class EcommerceBenchmarkGenerator:
     # I. Order / account
     # ------------------------------------------------------------------
     def generate_order_account(self, n: int = 5) -> List[Dict[str, Any]]:
-        types = ["recent_orders", "specific_order", "product_in_order", "cancel_order"]
+        types = ["recent_orders", "specific_order", "product_in_order"]
         results = []
+        orders = self._fetch_user_orders()
+        order_pool = orders if orders else []
         for _ in range(n):
             t = random.choice(types)
             style = self._random_style()
@@ -1368,38 +1666,56 @@ class EcommerceBenchmarkGenerator:
                 question = self._compose_one(param, "order_account", examples=[
                     '{"type":"recent_orders"} -> "Em muốn xem các đơn hàng gần đây của mình ạ"'
                 ])
-                gt = "Danh sách đơn hàng gần đây"
+                if order_pool:
+                    summary = "; ".join(
+                        f"Đơn {o['id']} ({o.get('status','').upper()}, {self._format_price(o.get('total',0) or 0)})"
+                        for o in order_pool[:5]
+                    )
+                    gt = f"Các đơn gần đây: {summary}"
+                else:
+                    gt = "Bạn chưa có đơn hàng nào"
             elif t == "specific_order":
-                order_id = "3f8a9b2c-1234-5678-90ab-cdef12345678"
+                order = random.choice(order_pool) if order_pool else None
+                order_id = order["id"] if order else "3f8a9b2c-1234-5678-90ab-cdef12345678"
                 expected = [{"tool": "order_lookup", "args": {"order_id": order_id}}]
                 param["order_id"] = order_id
                 question = self._compose_one(param, "order_account", examples=[
                     '{"type":"specific_order","order_id":"ABC"} -> "Cho em tra đơn hàng ABC với ạ"'
                 ])
-                gt = f"Thông tin đơn hàng {order_id}"
+                if order:
+                    items = order.get("items", [])
+                    names = [it.get("name", "Sản phẩm") for it in items] if isinstance(items, list) else [str(items)]
+                    gt = f"Đơn {order_id}: trạng thái {order.get('status','').upper()}, tổng {self._format_price(order.get('total',0) or 0)}, sản phẩm: {', '.join(names)}"
+                else:
+                    gt = f"Không tìm thấy đơn hàng {order_id}"
             elif t == "product_in_order":
-                p = self.catalog.sample_product()
-                param["product_name"] = p["name"]
+                if order_pool:
+                    order = random.choice(order_pool)
+                    items = order.get("items", [])
+                    names = [it.get("name", "") for it in items] if isinstance(items, list) else [str(items)]
+                    product_name = random.choice([n for n in names if n]) if any(names) else self.catalog.sample_product()["name"]
+                    gt_order_id = order["id"]
+                else:
+                    p = self.catalog.sample_product()
+                    product_name = p["name"]
+                    gt_order_id = None
+                param["product_name"] = product_name
                 expected = [{"tool": "order_lookup", "args": {}}]
                 question = self._compose_one(param, "order_account", examples=[
                     '{"type":"product_in_order","product_name":"Samsung Galaxy S25"} -> "Tuần trước em đặt Samsung Galaxy S25, giờ đơn đến đâu rồi shop?"'
                 ])
-                gt = f"Tìm đơn hàng chứa {p['name']}"
-            else:
-                order_id = "3f8a9b2c-1234-5678-90ab-cdef12345678"
-                expected = [{"tool": "order_lookup", "args": {"order_id": order_id}}]
-                param["order_id"] = order_id
-                question = self._compose_one(param, "order_account", examples=[
-                    '{"type":"cancel_order"} -> "Em muốn hủy đơn hàng ABC được không ạ?"'
-                ])
-                gt = f"Hủy đơn hàng {order_id}"
+                if gt_order_id:
+                    gt = f"Sản phẩm {product_name} nằm trong đơn {gt_order_id}"
+                else:
+                    gt = f"Tìm đơn hàng chứa {product_name}"
+
             results.append({
                 "id": self._new_id("order_account"),
                 "category": "order_account",
                 "question": question,
                 "expected_tool_calls": expected,
                 "ground_truth": {"product_ids": [], "answer_summary": gt},
-                "metadata": {"type": t, "style": style, "pronouns": pronouns},
+                "metadata": {"type": t, "style": style, "pronouns": pronouns, "user_id": self.current_user_id},
                 "contexts": [],
             })
         return results
@@ -1507,16 +1823,19 @@ class EcommerceBenchmarkGenerator:
             question = self._compose_one(param, "compound", examples=[
                 '{"product_name":"iPhone 15 Pro Max","info":"giá","policy":"đổi trả"} -> "iPhone 15 Pro Max giá bao nhiêu vậy shop, nếu mua rồi muốn đổi trong 7 ngày được không?"'
             ])
+            need_price = info in ["giá", "tồn kho", "ưu đãi"]
+            include_details = info in ["cấu hình"]
             expected = [
-                {"tool": "product_search", "args": {"queries": [{"keyword": p["name"], "brand": p.get("brand"), "category": p.get("category"), "name_contains": _normalize_line_key(p.get("line", ""), p.get("brand"), 3), "limit": 1, "need_price_info": info in ["giá", "tồn kho", "ưu đãi"], "include_details": info in ["cấu hình"]}]}},
+                {"tool": "product_search", "args": {"queries": [{"keyword": p["name"], "brand": p.get("brand"), "category": p.get("category"), "name_contains": _normalize_line_key(p.get("line", ""), p.get("brand"), 3), "limit": 1, "need_price_info": need_price, "include_details": include_details}]}},
                 {"tool": "policy_search", "args": {"key_word": policy}},
             ]
+            product_summary = self._make_ground_truth_summary([p], mode="rank", include_details=include_details, need_price_info=need_price)
             results.append({
                 "id": self._new_id("compound"),
                 "category": "compound",
                 "question": question,
                 "expected_tool_calls": expected,
-                "ground_truth": {"product_ids": [p["id"]], "answer_summary": f"{p['name']} và chính sách {policy}"},
+                "ground_truth": {"product_ids": [p["id"]], "answer_summary": f"{product_summary}; chính sách {policy}: [tra cứu từ policy_search]"},
                 "metadata": {"product_name": p["name"], "info": info, "policy": policy},
                 "contexts": [p.get("description", "")],
             })
