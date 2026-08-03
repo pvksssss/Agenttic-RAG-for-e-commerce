@@ -32,6 +32,15 @@ interface SupportTicket {
   created_at: string;
 }
 
+// Helper lấy key lưu trữ theo trạng thái đăng nhập và vai trò admin
+const getStorageKeys = (isAdmin: boolean, uid: string) => {
+  const userSuffix = uid ? `_${uid}` : '_guest';
+  return {
+    sessionKey: isAdmin ? `admin_chat_session_id${userSuffix}` : `chat_session_id${userSuffix}`,
+    historyKey: isAdmin ? `admin_chat_history${userSuffix}` : `chat_history${userSuffix}`
+  };
+};
+
 export default function ChatWidget() {
   const [isOpen, setIsOpen] = useState(false);
   const [pathname, setPathname] = useState('');
@@ -134,14 +143,15 @@ export default function ChatWidget() {
     }
   }, [activeTicket, isOpen, chatMode, ticketFlow]);
 
-  // Khởi tạo session_id và lấy token khi widget mount hoặc pathname thay đổi
+
+
+  // Khởi tạo session_id và lấy token khi widget mount hoặc user / pathname thay đổi
   useEffect(() => {
     if (!pathname) return;
 
     const isCurrentAdmin = pathname.startsWith('/admin');
+    const { sessionKey, historyKey } = getStorageKeys(isCurrentAdmin, userId);
     
-    // Tách session_id cho admin và user
-    const sessionKey = isCurrentAdmin ? 'admin_chat_session_id' : 'chat_session_id';
     let storedSession = localStorage.getItem(sessionKey);
     if (!storedSession) {
       storedSession = (isCurrentAdmin ? 'admin_sess_' : 'sess_') + Math.random().toString(36).substring(2, 15);
@@ -149,8 +159,6 @@ export default function ChatWidget() {
     }
     setSessionId(storedSession);
 
-    // Tách lịch sử chat cho admin và user
-    const historyKey = isCurrentAdmin ? 'admin_chat_history' : 'chat_history';
     const storedHistory = localStorage.getItem(historyKey);
     if (storedHistory) {
       try {
@@ -176,7 +184,7 @@ export default function ChatWidget() {
         },
       ]);
     }
-  }, [pathname]);
+  }, [pathname, userId]);
   useEffect(() => {
     const getSessionToken = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -278,11 +286,12 @@ export default function ChatWidget() {
   // Lưu lịch sử chat AI
   useEffect(() => {
     if (!pathname) return;
-    const historyKey = pathname.startsWith('/admin') ? 'admin_chat_history' : 'chat_history';
+    const isCurrentAdmin = pathname.startsWith('/admin');
+    const { historyKey } = getStorageKeys(isCurrentAdmin, userId);
     if (messages.length > 0 && messages[0].id !== 'welcome') {
       localStorage.setItem(historyKey, JSON.stringify(messages));
     }
-  }, [messages, pathname]);
+  }, [messages, pathname, userId]);
 
   // Gửi tin nhắn chat với AI
   const handleSend = async (e: React.FormEvent) => {
@@ -487,8 +496,14 @@ export default function ChatWidget() {
   const handleClearHistory = () => {
     if (window.confirm('Bạn có chắc chắn muốn xóa lịch sử cuộc trò chuyện này không?')) {
       const isCurrentAdmin = pathname.startsWith('/admin');
-      const historyKey = isCurrentAdmin ? 'admin_chat_history' : 'chat_history';
+      const { sessionKey, historyKey } = getStorageKeys(isCurrentAdmin, userId);
+      
+      // Xóa lịch sử cũ & tạo session_id mới hoàn toàn để xoá bộ nhớ LangGraph cũ
       localStorage.removeItem(historyKey);
+      const newSessionId = (isCurrentAdmin ? 'admin_sess_' : 'sess_') + Math.random().toString(36).substring(2, 15);
+      localStorage.setItem(sessionKey, newSessionId);
+      setSessionId(newSessionId);
+
       setMessages([
         {
           id: 'welcome',
