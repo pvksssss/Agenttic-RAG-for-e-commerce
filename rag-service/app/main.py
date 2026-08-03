@@ -10,6 +10,9 @@ from pydantic import BaseModel
 from typing import Optional, List
 from configs.setting import settings
 
+# Import compiled LangGraph Workflow 1
+from src.g_pipelines.workflow_1.workflow_1 import app as workflow_app
+
 app = FastAPI(
     title="Agentic RAG E-Commerce Backend",
     description="Dịch vụ Backend RAG hỗ trợ tư vấn sản phẩm, so sánh thông số và tra cứu đơn hàng.",
@@ -64,27 +67,36 @@ async def chat_endpoint(request: ChatRequest, authorization: Optional[str] = Hea
 
         if user_token:
             user_id = verify_supabase_jwt(user_token)
-            
-        msg_lower = request.message.lower()
+
+        # Gọi Workflow 1 (LangGraph) với user_query, session_id, user_token
+        session_id = request.session_id or "default-session"
+        run_config = {"configurable": {"thread_id": session_id}}
         
-        # MOCK phản hồi tạm thời có hiển thị thông tin xác thực để FE dễ debug
-        auth_status = f"Đã xác thực user_id: {user_id}" if user_id else "Chưa xác thực người dùng (Guest)"
-        reply = (
-            f"Chào bạn! Đây là phản hồi từ FastAPI AI Backend thực tế.\n"
-            f"Trạng thái Auth: {auth_status}\n"
-            f"Token nhận được: {user_token + '...' if user_token else 'None'}\n"
-            f"Nội dung chat: '{request.message}'"
+        result = workflow_app.invoke(
+            {
+                "user_query": request.message,
+                "session_id": session_id,
+                "user_token": user_token,
+            },
+            config=run_config
         )
-        tool_used = "mock_fastapi_tool"
-        sources = ["fastapi_backend"]
+
+        # Trích xuất kết quả từ Agent State
+        final_answer = result.get("final_answer") or "Xin lỗi, tôi không thể xử lý yêu cầu này."
+        cited_sources = result.get("cited_sources") or []
         
+        # Tổng hợp tool_used từ lịch sử tool calls
+        tool_calls = result.get("tool_calls_used") or []
+        tool_used = ", ".join([t.get("tool", "") for t in tool_calls if t.get("tool")]) or None
+
         return ChatResponse(
-            reply=reply,
+            reply=final_answer,
             tool_used=tool_used,
-            sources=sources,
-            session_id=request.session_id or "fastapi-session"
+            sources=cited_sources,
+            session_id=session_id
         )
     except Exception as e:
+        print(f"[ERROR] Chat endpoint failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

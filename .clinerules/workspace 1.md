@@ -1,0 +1,2 @@
+- Luôn chạy trong môi trường conda DL
+- Luôn trả lời tiếng việt

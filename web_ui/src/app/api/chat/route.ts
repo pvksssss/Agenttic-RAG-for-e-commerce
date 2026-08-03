@@ -33,9 +33,10 @@ export async function POST(request: Request) {
         body: JSON.stringify({
           message,
           session_id,
+          user_token,
         }),
-        // Đặt timeout ngắn để tránh treo request lâu khi backend chưa bật
-        signal: AbortSignal.timeout(5000)
+        // Timeout dài để đủ thời gian cho Workflow 1 gọi LLM + tools (có thể 15-40s)
+        signal: AbortSignal.timeout(120000)
       });
 
       if (apiResponse.ok) {
