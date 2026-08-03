@@ -106,7 +106,8 @@ PRODUCT_COMPARE_SCHEMA = {
         "description": (
             "Compare technical specifications, prices, and features of specific, named products. "
             "Use this tool ONLY when the user specifies the exact names of two or more products to compare (e.g., 'Compare iPhone 15 and Galaxy S24'). "
-            "Do NOT use this tool for general comparisons (e.g., 'Compare Samsung S24 with other iPhones' or 'Compare Dell and HP laptops'). For those, use product_search instead."
+            "Do NOT use this tool for general comparisons (e.g., 'Compare Samsung S24 with other iPhones' or 'Compare Dell and HP laptops'). For those, use product_search instead. "
+            "If the user asks 'nên chọn con nào' between named models, this tool is appropriate."
         ),
         "parameters": {
             "type": "object",
@@ -118,6 +119,7 @@ PRODUCT_COMPARE_SCHEMA = {
                     },
                     "description": (
                         "List of specific product names to compare. Each item in the array MUST be a specific, named product (e.g., 'iPhone 15 Pro', 'Dell XPS 13 9315'). "
+                        "Preserve the brand and model exactly as the user wrote it. "
                         "Do NOT include generic terms like 'other iPhones' or 'HP laptops' in this list."
                     )
                 }

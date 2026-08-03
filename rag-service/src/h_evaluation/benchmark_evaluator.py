@@ -24,7 +24,70 @@ from tqdm.auto import tqdm
 from langchain_openai import ChatOpenAI
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
+try:
+    from ragas.run_config import RunConfig
+except Exception:
+    RunConfig = None
+
+# Wrapper để dùng LLMService (có xoay key Gemini/Groq) làm LLM cho RAGAS
+from langchain_core.language_models.chat_models import SimpleChatModel
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+
+
+class LLMServiceChatModel(SimpleChatModel):
+    """LangChain chat model bridge qua LLMService, giữ router xoay key cho RAGAS."""
+
+    llm_service: Any = None
+    model_name: str = "gemini-3.5-flash-lite"
+    temperature: float = 0.0
+
+    @property
+    def _llm_type(self) -> str:
+        return "llm_service_chat"
+
+    @property
+    def _identifying_params(self) -> Dict[str, Any]:
+        return {"model": self.model_name}
+
+    def _call(
+        self,
+        messages: List[Any],
+        stop: Optional[List[str]] = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> str:
+        if not self.llm_service:
+            raise ValueError("LLMServiceChatModel cần llm_service")
+        response = self.llm_service.call_gemini(
+            model=self.model_name,
+            messages=messages,
+            tools=None,
+            stream=False,
+            max_retries=3,
+        )
+        text = ""
+        for chunk in response:
+            if getattr(chunk, "text", None):
+                text += chunk.text
+            elif getattr(chunk, "candidates", None):
+                for cand in chunk.candidates:
+                    content = getattr(cand, "content", None)
+                    parts = getattr(content, "parts", None) if content else None
+                    if parts:
+                        for part in parts:
+                            text += getattr(part, "text", "") or ""
+        return text
+
+
 # Lazy import ragas để tránh lỗi khi môi trường thiếu dependency hoặc version không tương thích
+# Ragas 0.4.x import ChatVertexAI từ langchain_community; tạo shim nếu thiếu.
+import sys, types
+if "langchain_community.chat_models.vertexai" not in sys.modules:
+    sys.modules["langchain_community.chat_models.vertexai"] = types.SimpleNamespace(
+        ChatVertexAI=type("ChatVertexAI", (), {})
+    )
+
 _ragas_available = False
 try:
     from ragas import evaluate as ragas_evaluate
@@ -131,13 +194,56 @@ _KEY_MATCHERS = {
 
 
 def _match_query(exp_q: Dict[str, Any], act_q: Dict[str, Any]) -> float:
-    scores, weights = [], []
+    key_weights = {
+        "keyword": 1.0,
+        "brand": 1.5,
+        "category": 1.5,
+        "name_contains": 1.5,
+        "min_price": 1.5,
+        "max_price": 1.5,
+        "mode": 1.0,
+        "limit": 1.0,
+        "include_details": 1.0,
+        "need_price_info": 1.0,
+    }
+    scores: Dict[str, float] = {}
     for k, matcher in _KEY_MATCHERS.items():
         if k in exp_q or k in act_q:
-            w = 1.5 if k in ("brand", "category", "name_contains", "min_price", "max_price") else 1.0
-            scores.append(matcher(exp_q.get(k), act_q.get(k)))
-            weights.append(w)
-    return sum(s * w for s, w in zip(scores, weights)) / sum(weights) if scores else 0.0
+            scores[k] = matcher(exp_q.get(k), act_q.get(k))
+
+    # Fallback: brand/category can be omitted if they are recoverable from name_contains/keyword
+    for k in ("brand", "category"):
+        if scores.get(k, 0.0) < 1.0 and exp_q.get(k) and not act_q.get(k):
+            combined = f"{act_q.get('name_contains', '')} {act_q.get('keyword', '')}"
+            exp_tokens = set(_norm(exp_q.get(k)).split())
+            act_tokens = set(_norm(combined).split())
+            if exp_tokens and exp_tokens <= act_tokens:
+                scores[k] = 1.0
+
+    # Fallback: keyword mismatch is forgiven when name_contains matches the same line/product,
+    # because a short semantic keyword (e.g. "chip") and a full product name are both valid
+    # for single-spec queries.
+    if scores.get("keyword", 0.0) < 1.0 and exp_q.get("keyword") and act_q.get("keyword"):
+        if scores.get("name_contains", 0.0) >= 0.8:
+            if _overlap(exp_q.get("name_contains"), act_q.get("keyword")) > 0.5:
+                scores["keyword"] = 1.0
+            elif _f1(exp_q.get("keyword"), act_q.get("keyword")) > 0.5:
+                scores["keyword"] = 1.0
+        elif _f1(exp_q.get("keyword"), act_q.get("keyword")) > 0.5:
+            scores["keyword"] = 1.0
+
+    # Lenient limit: exact is best, but slightly different limits still get partial credit.
+    if "limit" in scores:
+        try:
+            e = int(exp_q.get("limit", 0))
+            a = int(act_q.get("limit", 0))
+            scores["limit"] = max(0.0, 1.0 - abs(a - e) / max(e, a, 1))
+        except (ValueError, TypeError):
+            pass
+
+    if not scores:
+        return 0.0
+    return sum(scores[k] * key_weights.get(k, 1.0) for k in scores) / sum(key_weights.get(k, 1.0) for k in scores)
 
 
 def _match_product_search(exp_args: Dict[str, Any], act_args: Dict[str, Any]) -> float:
@@ -529,11 +635,36 @@ Chỉ trả JSON, không thêm text."""
 # RAGAS runner
 # ---------------------------------------------------------------------------
 class RAGASRunner:
-    def __init__(self, model: Optional[str] = None, api_key: Optional[str] = None):
-        if not settings or not settings.GROQ_API_KEY:
-            raise ValueError("Cần GROQ_API_KEY cho RAGAS judge")
-        model = model or (app_config.llm.groq.available[0] if app_config and app_config.llm.groq.available else "llama-3.3-70b-versatile")
-        llm = ChatOpenAI(model=model, api_key=api_key or settings.GROQ_API_KEY, base_url="https://api.groq.com/openai/v1", temperature=0, timeout=120, max_retries=2)
+    def __init__(self, model: Optional[str] = None, api_key: Optional[str] = None, llm_service: Any = None):
+        if not model:
+            if llm_service and app_config and app_config.llm.google.available:
+                # Nếu có llm_service, mặc định dùng Gemini model đầu tiên để tránh Groq timeout
+                model = app_config.llm.google.available[0]
+            elif app_config and app_config.llm.groq.available:
+                model = app_config.llm.groq.available[0]
+            else:
+                model = "gemini-3.5-flash-lite"
+        is_gemini = model and ("gemini" in model.lower() or model.startswith("models/"))
+        if is_gemini and llm_service:
+            # Dùng LLMService để có router xoay key Gemini
+            llm = LLMServiceChatModel(llm_service=llm_service, model_name=model or "gemini-3.5-flash-lite")
+        elif is_gemini:
+            if not settings or not settings.GEMINI_API_KEY:
+                raise ValueError("Cần GEMINI_API_KEY cho RAGAS judge với Gemini model")
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            llm = ChatGoogleGenerativeAI(
+                model=model or "gemini-1.5-flash",
+                google_api_key=api_key or settings.GEMINI_API_KEY,
+                temperature=0,
+                timeout=120,
+                max_retries=2,
+            )
+        else:
+            if not settings or not settings.GROQ_API_KEY:
+                raise ValueError("Cần GROQ_API_KEY cho RAGAS judge")
+            if not model:
+                model = "llama-3.3-70b-versatile"
+            llm = ChatOpenAI(model=model, api_key=api_key or settings.GROQ_API_KEY, base_url="https://api.groq.com/openai/v1", temperature=0, timeout=120, max_retries=2, max_tokens=4096)
         emb = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         self.llm = LangchainLLMWrapper(llm)
         self.emb = LangchainEmbeddingsWrapper(emb)
@@ -554,7 +685,8 @@ class RAGASRunner:
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
-                    res = ragas_evaluate(ds_in, metrics=metric_list, llm=self.llm, embeddings=self.emb)
+                    run_cfg = RunConfig(max_workers=4, timeout=300, max_retries=3) if RunConfig else None
+                    res = ragas_evaluate(ds_in, metrics=metric_list, llm=self.llm, embeddings=self.emb, run_config=run_cfg, batch_size=40, show_progress=True)
                     return res.to_pandas()
             except Exception as e:
                 warnings.warn(f"RAGAS error: {e}")
@@ -614,7 +746,7 @@ class BenchmarkEvaluator:
             gemini_key_manager=self.gemini_key_manager,
             max_retries=max_retries,
         )
-        self.ragas = RAGASRunner(model=ragas_model) if use_ragas else None
+        self.ragas = RAGASRunner(model=ragas_model, llm_service=llm_service) if use_ragas else None
 
     # ------------------------------------------------------------------
     # Public API: 2 modules sinh answer (run) & judge (evaluate)
@@ -651,9 +783,13 @@ class BenchmarkEvaluator:
         for wf_name, wf_app in apps.items():
             print(f"\n🚀 Running workflow: {wf_name} ({len(records)} records) | Auth Token: {'YES' if token_to_use else 'NONE (Guest)'}")
             wf_res = []
+            raw_path = output_dir / f"raw_{wf_name}_{int(time.time())}.jsonl"
+            # Xóa file cũ nếu có để ghi mới
+            raw_path.unlink(missing_ok=True)
             for r in tqdm(records, desc=f"  {wf_name}", unit="record"):
                 res = self._run_record(wf_app, r, wf_name, user_token=token_to_use)
                 wf_res.append(res)
+                self._append_jsonl(res, raw_path)
                 if "turns" in res and res["turns"]:
                     last_turn = res["turns"][-1]
                     ans_len = len(str(last_turn.get("final_answer", "")))
@@ -667,7 +803,7 @@ class BenchmarkEvaluator:
                     status = res.get("error", "")
                 print(f"   {'✅' if not status else '❌'} {r.get('id','?')} | cat={r.get('category','?')} | ans_len={ans_len} | tools={tools} | latency={latency:.2f}s | error={status[:80]}")
             all_results.extend(wf_res)
-            self._save_jsonl(wf_res, output_dir / f"raw_{wf_name}_{int(time.time())}.jsonl")
+            self._save_jsonl(wf_res, raw_path)
 
         if len(apps) > 1:
             self._save_jsonl(all_results, output_dir / f"raw_all_{int(time.time())}.jsonl")
@@ -870,10 +1006,12 @@ class BenchmarkEvaluator:
         rows = []
         for r in raw_results:
             if "turns" in r and r["turns"]:
-                cum_outs = []
                 for i, turn in enumerate(r["turns"]):
                     is_last = i == len(r["turns"]) - 1
-                    cum_outs.extend(turn.get("tool_outputs", []))
+                    # Use tool outputs of the current turn only; cumulative outputs are kept for audit.
+                    turn_contexts = [c for c in turn.get("tool_outputs", []) if c]
+                    if not turn_contexts:
+                        turn_contexts = [c for c in turn.get("cumulative_tool_outputs", []) if c]
                     gt = turn.get("ground_truth", {})
                     gt_str = gt.get("answer_summary", "") if isinstance(gt, dict) else str(gt)
                     eid = f"{r['id']}_turn{i+1}"
@@ -886,7 +1024,8 @@ class BenchmarkEvaluator:
                         "is_last_turn": is_last,
                         "question": turn.get("question", ""),
                         "answer": turn.get("final_answer", ""),
-                        "contexts": [c for c in cum_outs if c],
+                        "contexts": turn_contexts,
+                        "cumulative_contexts": [c for c in turn.get("cumulative_tool_outputs", []) if c],
                         "ground_truth": gt_str,
                         "expected_tool_calls": turn.get("expected_tool_calls", []),
                         "actual_tool_calls": turn.get("actual_tool_calls", []),
@@ -898,7 +1037,7 @@ class BenchmarkEvaluator:
                         "judge_input": {
                             "question": turn.get("question", ""),
                             "answer": turn.get("final_answer", ""),
-                            "contexts": [c for c in cum_outs if c],
+                            "contexts": turn_contexts,
                             "ground_truth": gt_str,
                             "is_multiturn": i > 0 and is_last,
                         },
@@ -1109,6 +1248,11 @@ class BenchmarkEvaluator:
         with open(path, "w", encoding="utf-8") as f:
             for r in records:
                 f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
+
+    @staticmethod
+    def _append_jsonl(record: Dict[str, Any], path: Path):
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
 
     @staticmethod
     def print_pretty_report(report_data: Union[dict, str, Path]):

@@ -383,15 +383,19 @@ PRODUCT_SEARCH_SCHEMA = {
         "name": "product_search",
         "description": (
             "Use this when the user wants to FIND, BUY, COMPARE, LIST LINES/SERIES, or get TOP-N RECOMMENDATIONS for products. "
+            "Do NOT use this tool if the user request is too vague to search (missing product type/brand/price and requiring clarification); ask the user instead. "
             "Choose `mode='lines'` when the user asks to LIST/SEE models or variants of a product LINE/SERIES, even with price filters "
             "(e.g. 'có những dòng nào', 'các loại/dòng máy', 'các mẫu dòng S dưới 30 triệu'). "
             "Choose default `mode='rank'` ONLY when the user asks for TOP-N, cheapest, best, or a specific single recommendation "
             "(e.g. 'cho a 5 cái rẻ nhất', 'nên mua nào', 'máy nào rẻ nhất', 'máy nào mạnh nhất'). "
             "Each item in `queries` can have ITS OWN brand/category/min_price/max_price/limit/name_contains/mode filter. "
             "If the customer asks about multiple products with DIFFERENT conditions in one message, split them into separate items in a SINGLE call. "
-            "`name_contains` is an SQL pre-filter on product name (case-insensitive), e.g. 'MacBook Air' to only include MacBook Air products. "
-            "Use include_details=True for technical specs (chip, RAM, display, battery...). "
-            "Use need_price_info=True when asking about price, discount, stock, or SKU."
+            "For `keyword`, put only semantic intent/description (NOT raw product names/SKU/model codes). "
+            "For `name_contains`, use a short, recognizable product LINE/SERIES name (e.g. 'MacBook Air', 'ROG Zephyrus G16', 'iPhone 15'); "
+            "NEVER put the full product name, model code, or SKU here. "
+            "`include_details=True` ONLY when asking for technical specs (chip, RAM, display, battery, camera). "
+            "`need_price_info=True` ONLY when asking about price, discount, stock, or SKU. "
+            "`limit` must match the user's request: 1 for a single specific product, the exact requested number for 'top N' / 'N mẫu', and 3-8 for open-ended listing/recommendation."
         ),
         "parameters": {
             "type": "object",
@@ -408,28 +412,33 @@ PRODUCT_SEARCH_SCHEMA = {
                                     "Chỉ chứa phần MÔ TẢ ngữ nghĩa (tên sản phẩm, đặc điểm định tính: mỏng nhẹ, "
                                     "pin trâu, chơi game...). KHÔNG lặp lại brand, giá, hoặc tên dòng cụ thể nếu đã dùng name_contains. "
                                     "Ví dụ: 'laptop Asus mỏng nhẹ pin trâu dưới 25 triệu' -> keyword: 'mỏng nhẹ pin trâu', brand: 'Asus', max_price: 25000000. "
-                                    "Với 'các dòng MacBook Air dưới 30 triệu': keyword: 'MacBook Air', name_contains: 'MacBook Air', brand: 'Apple', max_price: 30000000, mode: 'lines'."
+                                    "Với 'các dòng MacBook Air dưới 30 triệu': keyword: 'MacBook Air', name_contains: 'MacBook Air', brand: 'Apple', max_price: 30000000, mode: 'lines'. "
+                                    "When the user asks about a single specific model, you may put the full product name OR a short semantic keyword (e.g. 'chip', 'pin', 'camera', 'giá') in keyword, but put the product series in name_contains, not the model code/SKU."
                                 )
                             },
                             "brand": {
                                 "type": "string",
                                 "description": (
                                     "Thương hiệu để lọc chính xác trước khi tìm ngữ nghĩa, CHỈ áp dụng cho "
-                                    "item này (khác item có thể khác brand). Để trống nếu khách không nhắc rõ."
+                                    "item này (khác item có thể khác brand). Để trống nếu khách không nhắc rõ. "
+                                    "Nếu khách đề cập rõ brand hoặc brand xuất hiện trong tên sản phẩm, PHẢI điền đúng."
                                 )
                             },
                             "category": {
                                 "type": "string",
                                 "description": (
                                     "Danh mục sản phẩm để lọc chính xác trước khi tìm ngữ nghĩa (ví dụ: 'laptop', 'phone', 'tablet'). "
-                                    "CHỈ áp đụng cho item này. Để trống nếu khách không nhắc rõ."
+                                    "CHỈ áp dụng cho item này. Để trống nếu khách không nhắc rõ. "
+                                    "Nếu khách đề cập rõ loại sản phẩm hoặc có thể suy ra từ tên sản phẩm, PHẢI điền đúng."
                                 )
                             },
                             "name_contains": {
                                 "type": "string",
                                 "description": (
                                     "Lọc SQL trên cột name (không phân biệt hoa thường). Dùng khi cần giới hạn đúng một dòng máy, "
-                                    "ví dụ 'MacBook Air', 'iPhone 15', 'ThinkPad'. KHÔNG thay thế keyword."
+                                    "ví dụ 'MacBook Air', 'iPhone 15', 'ThinkPad', 'ROG Zephyrus G16'. "
+                                    "KHÔNG dùng tên sản phẩm đầy đủ, mã model, hoặc SKU ở đây. "
+                                    "Nếu khách nói tên đầy đủ như 'Laptop ASUS ROG Zephyrus G16 GU606AW-TB052WS', hãy để keyword chứa tên đầy đủ (hoặc 'chip/pin/ram') và name_contains chỉ là 'ROG Zephyrus G16'."
                                 )
                             },
                             "min_price": {
@@ -449,27 +458,36 @@ PRODUCT_SEARCH_SCHEMA = {
                                 "type": "string",
                                 "enum": ["rank", "lines"],
                                 "description": (
-                                    "'rank' (default): trả top-N sản phẩm phù hợp nhất. Use ONLY for 'rẻ nhất', 'nên mua', 'top 5', 'máy nào ... nhất', 'cho a X sản phẩm (rẻ/ngon)'. "
-                                    "'lines': nhóm theo dòng máy và trả 1 đại diện mỗi dòng. Use when the user asks 'có những dòng nào', 'các loại', 'dòng máy', 'series nào', 'các mẫu dòng X', even with a price filter."
+                                    "'rank' (default): trả top-N sản phẩm phù hợp nhất. Use ONLY for 'rẻ nhất', 'nên mua', 'top 5', 'máy nào ... nhất', 'cho a X sản phẩm (rẻ/ngon)', or a single specific product. "
+                                    "'lines': nhóm theo dòng máy và trả 1 đại diện mỗi dòng. Use when the user asks 'có những dòng nào', 'các loại', 'dòng máy', 'series nào', 'các mẫu dòng X', even with a price filter. "
+                                    "If unsure and the user wants a list of series/variants, prefer 'lines'."
                                 )
                             },
                             "include_details": {
                                 "type": "boolean",
                                 "description": (
-                                    "Set True only when the customer asks for technical specs (chip, RAM, display, battery...). "
-                                    "Set False (default) when customer only asks about general info."
+                                    "Set True ONLY when the customer explicitly asks for technical specs (chip, RAM, display, battery, camera) or 'thông số chi tiết'. "
+                                    "Set False (default) for price, stock, SKU, discount, or general availability questions. "
+                                    "Do NOT set True just to be safe; extra details can confuse price-only answers."
                                 )
                             },
                             "need_price_info": {
                                 "type": "boolean",
                                 "description": (
-                                    "Set True when customer asks about price, discount, stock, or SKU. "
-                                    "Set False (default) when customer only asks about general info."
+                                    "Set True ONLY when the customer explicitly asks about price, discount, stock, or SKU. "
+                                    "Set False (default) for spec-only questions (chip, RAM, display, battery, camera). "
+                                    "Do NOT set True automatically for every query."
                                 )
                             },
                             "limit": {
                                 "type": "integer",
-                                "description": "Max number of products/lines to return for this specific query. If omitted, default is 3 for mode='rank' and 30 for mode='lines'."
+                                "description": (
+                                    "Max number of products/lines to return for this specific query. "
+                                    "Use 1 when the user asks about ONE specific product by exact name and the answer should be about that single product. "
+                                    "If the user asks for 'N' items (e.g. 'cho em 5 cái', '8 mẫu', 'top 3'), set limit=N. "
+                                    "Use 3-8 for open-ended listing/recommendation/comparison. "
+                                    "If omitted, default is 3 for mode='rank' and 30 for mode='lines'."
+                                )
                             }
                         },
                         "required": ["keyword"]

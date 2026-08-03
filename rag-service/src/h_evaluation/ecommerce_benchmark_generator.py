@@ -864,7 +864,7 @@ class EcommerceBenchmarkGenerator:
             pronouns = self._random_pronouns()
             include_details = key in ["cpu", "ram", "storage", "display_size", "battery", "camera"]
             need_price = key in ["price", "discount", "stock"]
-            line_key = _normalize_line_key(p["line"], p.get("brand"), n_tokens=3)
+            line_key = _clean_line_key(p.get("line", ""), p.get("brand"), p.get("category"))
             keyword = p["name"]
             param = {
                 "category": "single_spec",
@@ -1505,14 +1505,14 @@ class EcommerceBenchmarkGenerator:
             return {"tool": "product_search", "args": {"queries": [q]}}
         if intent == "stock_price":
             p = products[0]
-            q = {"keyword": p.get("name", ""), "name_contains": _normalize_line_key(p.get("line", ""), p.get("brand"), 3), "limit": 1, "need_price_info": True}
+            q = {"keyword": p.get("name", ""), "name_contains": _clean_line_key(p.get("line", ""), p.get("brand"), p.get("category")), "limit": 1, "need_price_info": True}
             for k in ["brand", "category"]:
                 if p.get(k):
                     q[k] = p[k]
             return {"tool": "product_search", "args": {"queries": [q]}}
         if intent == "specs_of_previous":
             p = products[0]
-            q = {"keyword": p.get("name", ""), "name_contains": _normalize_line_key(p.get("line", ""), p.get("brand"), 3), "limit": 1, "include_details": True}
+            q = {"keyword": p.get("name", ""), "name_contains": _clean_line_key(p.get("line", ""), p.get("brand"), p.get("category")), "limit": 1, "include_details": True}
             for k in ["brand", "category"]:
                 if p.get(k):
                     q[k] = p[k]
@@ -1593,7 +1593,7 @@ class EcommerceBenchmarkGenerator:
                 question = self._compose_one(param, "hard", examples=[
                     '{"product_name":"Laptop ASUS Vivobook 15","scenario":"out_of_stock"} -> "Con ASUS Vivobook 15 này hết hàng rồi hả shop, nếu đổi sang con tương đương thì con nào ngon hơn?"'
                 ])
-                expected = [{"tool": "product_search", "args": {"queries": [{"keyword": "tương đương " + p["name"], "brand": p.get("brand"), "category": p.get("category"), "name_contains": _normalize_line_key(p.get("line", ""), p.get("brand"), 2), "limit": 3, "include_details": True}]}}]
+                expected = [{"tool": "product_search", "args": {"queries": [{"keyword": "tương đương " + p["name"], "brand": p.get("brand"), "category": p.get("category"), "name_contains": _clean_line_key(p.get("line", ""), p.get("brand"), p.get("category")), "limit": 3, "include_details": True}]}}]
             elif scenario == "contradictory":
                 cat = random.choice(self.catalog.distinct_categories())
                 brand = random.choice(self.catalog.distinct_brands(category=cat))
@@ -1826,7 +1826,7 @@ class EcommerceBenchmarkGenerator:
             need_price = info in ["giá", "tồn kho", "ưu đãi"]
             include_details = info in ["cấu hình"]
             expected = [
-                {"tool": "product_search", "args": {"queries": [{"keyword": p["name"], "brand": p.get("brand"), "category": p.get("category"), "name_contains": _normalize_line_key(p.get("line", ""), p.get("brand"), 3), "limit": 1, "need_price_info": need_price, "include_details": include_details}]}},
+                {"tool": "product_search", "args": {"queries": [{"keyword": p["name"], "brand": p.get("brand"), "category": p.get("category"), "name_contains": _clean_line_key(p.get("line", ""), p.get("brand"), p.get("category")), "limit": 1, "need_price_info": need_price, "include_details": include_details}]}},
                 {"tool": "policy_search", "args": {"key_word": policy}},
             ]
             product_summary = self._make_ground_truth_summary([p], mode="rank", include_details=include_details, need_price_info=need_price)

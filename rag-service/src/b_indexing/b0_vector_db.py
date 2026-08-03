@@ -13,7 +13,10 @@ class ChromaVectorDatabase:
     def get_or_create_collection(self, name: str):
         """Get or create a collection by name."""
         if name not in self._collections:
-            self._collections[name] = self.client.get_or_create_collection(name=name)
+            self._collections[name] = self.client.get_or_create_collection(
+                name=name,
+                metadata={"hnsw:space": "cosine"}
+            )
         return self._collections[name]
     
     def add_documents(

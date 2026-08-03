@@ -125,7 +125,8 @@ ORDER_LOOKUP_SCHEMA = {
             "Use this tool when users ask: 'Where is my order?', 'Show my orders', or inquire about a specific order. "
             "IMPORTANT: If the user asks about a specific product they bought (e.g., 'Where is my Samsung S25?'), "
             "DO NOT guess the order_id. Leave order_id parameter empty to retrieve their recent orders, then "
-            "search the returned list of products to find the correct order containing that product."
+            "search the returned list of products to find the correct order containing that product. "
+            "If the user mentions a product name and asks about delivery/status, call this tool once with an empty order_id."
         ),
         "parameters": {
             "type": "object",
@@ -135,11 +136,12 @@ ORDER_LOOKUP_SCHEMA = {
                     "description": (
                         "The specific UUID of the order to query (e.g., '3f8a9b2c-1234-5678-90ab-cdef12345678'). "
                         "Leave this empty if the user is asking generally or about a specific product name (e.g., 'Samsung S25') "
-                        "instead of an order UUID."
+                        "instead of an order UUID. "
+                        "Only fill this if the user explicitly provides a UUID/ORDER ID."
                     )
                 }
             },
-            # Note: current_user_id and user_token are NOT in the JSON schema properties. 
+            # Note: current_user_id and user_token are NOT in the JSON schema properties.
             # They will be injected automatically by the Python agent before invocation.
             "required": []
         }

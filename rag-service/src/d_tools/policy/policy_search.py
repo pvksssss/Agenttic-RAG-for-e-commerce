@@ -54,7 +54,8 @@ POLICY_SEARCH_SCHEMA = {
         "name": "policy_search",
         "description": (
             "Search for store policies (warranty regulations, return policy, delivery fees, customer support, etc.). "
-            "Use this tool when users ask questions about store regulations, policies, or how-to procedures."
+            "Use this tool when users ask questions about store regulations, policies, or how-to procedures. "
+            "Also use it when a compound question mixes a product query with a policy question (e.g. price of X + does the store support installment/return/warranty)."
         ),
         "parameters": {
             "type": "object",
@@ -64,6 +65,7 @@ POLICY_SEARCH_SCHEMA = {
                     "description": (
                         "The search query extracted and optimized by the LLM (noise-filtered, concise search term. "
                         "Do NOT include greeting words or conversational filler. "
+                        "Keep it to 1-3 relevant Vietnamese keywords. "
                         "Example: convert 'Can you tell me about the return warranty policy?' to 'warranty return'."
                     )
                 },
