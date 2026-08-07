@@ -50,9 +50,10 @@ except Exception:
     verify_supabase_jwt = None  # type: ignore
 
 
-# ---------------------------------------------------------------------------
-# Helpers trích xuất dòng máy
-# ---------------------------------------------------------------------------
+# =====================================================================
+# 1. CÁC HÀM TRỢ GIÚP TRÍCH XUẤT & XỬ LÝ CHUỖI (HELPERS)
+# =====================================================================
+
 def _is_spec_token(tok: str) -> bool:
     if re.search(r"\d+\s?(CPU|GPU|GB|TB|MB|inch|Hz|Wh|W)\b", tok, re.I):
         return True
@@ -150,9 +151,10 @@ def _jaccard_similarity(a: str, b: str, n: int = 2) -> float:
     return inter / union if union else 1.0
 
 
-# ---------------------------------------------------------------------------
-# LLM wrapper
-# ---------------------------------------------------------------------------
+# =====================================================================
+# 2. LỚP WRAPPER ĐẦU RA LLM & TỰ ĐỘNG XOAY KEY (GeminiLLM)
+# =====================================================================
+
 class GeminiLLM:
     def __init__(
         self,
@@ -224,9 +226,10 @@ class GeminiLLM:
         return await loop.run_in_executor(None, self.generate, *args, **kwargs)
 
 
-# ---------------------------------------------------------------------------
-# Truy vấn dữ liệu
-# ---------------------------------------------------------------------------
+# =====================================================================
+# 3. TRUY VẤN VÀ BỘ NHỚ ĐỆM CATALOG SẢN PHẨM (ProductCatalog)
+# =====================================================================
+
 class ProductCatalog:
     """Load và cache danh sách sản phẩm từ Supabase."""
 
@@ -353,9 +356,10 @@ class ProductCatalog:
         return (min(prices), max(prices))
 
 
-# ---------------------------------------------------------------------------
-# Generator chính
-# ---------------------------------------------------------------------------
+# =====================================================================
+# 4. BỘ SINH DỮ LIỆU BENCHMARK CHÍNH (EcommerceBenchmarkGenerator)
+# =====================================================================
+
 class EcommerceBenchmarkGenerator:
     """Sinh câu hỏi benchmark từ catalog sản phẩm, theo trục biến thiên."""
 
@@ -538,6 +542,9 @@ class EcommerceBenchmarkGenerator:
                 return (min_p, max_p)
         return (mn, mx)
 
+# =====================================================================
+# 5. SINH VĂN PHONG, XƯNG HÔ & BIỂU THỨC GIÁ NGẪU NHIÊN
+# =====================================================================
     def _random_style(self) -> Dict[str, str]:
         return {
             "length": random.choice(["ngắn gọn", "vừa phải", "dài dòng"]),
@@ -608,6 +615,9 @@ class EcommerceBenchmarkGenerator:
             return {"expr": "around", "text": f"khoảng {x} triệu", "min_price": max(0, x - 2) * 1_000_000, "max_price": (x + 2) * 1_000_000}
         return {"expr": "none", "text": "", "min_price": None, "max_price": None}
 
+# =====================================================================
+# 6. GOM BATCH VỚI GEMINI LLM & BÁO CÁO ĐỘ ĐA DẠNG CÂU HỎI
+# =====================================================================
     def _compose_questions(self, params_list: List[Dict[str, Any]], category: str, examples: Optional[List[str]] = None, batch_size: int = 5) -> List[str]:
         """Gọi LLM 1 lần cho nhiều bộ tham số để sinh câu hỏi tự nhiên."""
         if not params_list:
@@ -836,8 +846,12 @@ class EcommerceBenchmarkGenerator:
             "contexts": contexts or [p.get("description", "") for p in (products[:3] if products else [])],
         }
 
+# =====================================================================
+# 7. CÁC HÀM SINH CÂU HỎI BENCHMARK THEO KỊCH BẢN (GENERATORS)
+# =====================================================================
+
     # ------------------------------------------------------------------
-    # A. Single intent (single_spec + stock/price/promotion)
+    # A. Single Spec (Hỏi thuộc tính sản phẩm đơn lẻ / Tồn kho / Giá)
     # ------------------------------------------------------------------
     def generate_single_spec(self, n: int = 5) -> List[Dict[str, Any]]:
         """Hỏi 1 thông tin cụ thể về 1 sản phẩm (chip, ram, pin, giá, tồn kho...)."""
@@ -909,7 +923,7 @@ class EcommerceBenchmarkGenerator:
         return results
 
     # ------------------------------------------------------------------
-    # B. Lines / Lines + specs
+    # B. Lines / Lines Specs (Liệt kê dòng sản phẩm)
     # ------------------------------------------------------------------
     def generate_lines(self, n: int = 5) -> List[Dict[str, Any]]:
         """Hỏi có những dòng máy nào của 1 hãng (có thể kèm khoảng giá)."""
@@ -1894,9 +1908,9 @@ class EcommerceBenchmarkGenerator:
                 results.append(self._build_record(param, q, products, reps, expected, ""))
         return results
 
-    # ------------------------------------------------------------------
-    # Tổng hợp
-    # ------------------------------------------------------------------
+# =====================================================================
+# 8. TỔNG HỢP & XUẤT FILE BENCHMARK JSONL (RUNNER & EXPORTER)
+# =====================================================================
     def generate_all(
         self,
         counts: Optional[Dict[str, int]] = None,

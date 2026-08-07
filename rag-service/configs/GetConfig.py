@@ -55,6 +55,14 @@ class AppConfig:
                 self.available = data.get("available", [])
                 self.reasoning_effort = data.get("reasoning_effort", "medium")
 
+        class Ollama:
+            """Cấu hình model local qua Ollama (OpenAI-compatible)."""
+            def __init__(self, data):
+                self.base_url = data.get("base_url", "http://localhost:11434/v1")
+                self.reasoning_effort = data.get("reasoning_effort", "none")
+                self.supports_tools = data.get("supports_tools", True)
+                self.available = data.get("available", [])
+
         def __init__(self, data):
             # Model active cho router và qa
             self.router = data.get("router", {})
@@ -64,12 +72,14 @@ class AppConfig:
             self.google = self.ProviderCatalog(data.get("google", {}))
             self.groq = self.ProviderCatalog(data.get("groq", {}))
             self.openrouter = self.ProviderCatalog(data.get("openrouter", {}))
+            self.ollama = self.Ollama(data.get("ollama", {}))
             
             # Giữ lại catalog dict cũ để tương thích ngược nếu cần
             self.catalog = {
                 "google": self.google.available,
                 "groq": self.groq.available,
-                "openrouter": self.openrouter.available
+                "openrouter": self.openrouter.available,
+                "ollama": self.ollama.available
             }
 
     class Agent:

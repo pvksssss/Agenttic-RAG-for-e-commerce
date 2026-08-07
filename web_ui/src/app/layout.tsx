@@ -11,7 +11,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Antigravity E-Shop - Cửa hàng Thiết bị Công nghệ chính hãng",
+  title: "4Customer - Cửa hàng Thiết bị Công nghệ chính hãng",
   description: "Cửa hàng TMĐT cung cấp Laptop, Điện thoại, Tai nghe và Phụ kiện cao cấp hàng đầu Việt Nam, tích hợp trợ lý AI hỗ trợ khách hàng thông minh 24/7.",
 };
 

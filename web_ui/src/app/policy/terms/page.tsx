@@ -25,7 +25,7 @@ export default function TermsOfUsePage() {
             Điều khoản và điều kiện sử dụng dịch vụ
           </p>
           <p>
-            Chào mừng bạn đến với sàn thương mại điện tử công nghệ <strong className="text-white">Antigravity E-Shop</strong>. Trang web này được vận hành và cung cấp các dịch vụ mua bán thiết bị số cao cấp đến người tiêu dùng.
+            Chào mừng bạn đến với sàn thương mại điện tử công nghệ <strong className="text-white">4Customer</strong>. Trang web này được vận hành và cung cấp các dịch vụ mua bán thiết bị số cao cấp đến người tiêu dùng.
           </p>
           <p>
             Bằng cách truy cập, đăng ký tài khoản, hoặc tiến hành mua hàng trên hệ thống của chúng tôi, bạn được mặc định là đã đọc, hiểu và đồng ý hoàn toàn với các điều khoản sử dụng này. Nếu bạn không đồng ý với bất kỳ phần nào của các quy định dưới đây, vui lòng dừng sử dụng trang web ngay lập tức.
@@ -70,13 +70,13 @@ export default function TermsOfUsePage() {
           </p>
           <ul className="list-decimal pl-5 space-y-2.5">
             <li>
-              <strong className="text-white">Xác nhận đơn đặt hàng:</strong> Sau khi quý khách nhấn nút thanh toán đặt hàng trên web, hệ thống sẽ tiếp nhận đơn hàng. Đơn hàng chỉ được coi là thành công khi nhân viên Antigravity gọi điện/gửi email xác nhận giao dịch.
+              <strong className="text-white">Xác nhận đơn đặt hàng:</strong> Sau khi quý khách nhấn nút thanh toán đặt hàng trên web, hệ thống sẽ tiếp nhận đơn hàng. Đơn hàng chỉ được coi là thành công khi nhân viên 4Customer gọi điện/gửi email xác nhận giao dịch.
             </li>
             <li>
               <strong className="text-white">Chính sách giá cả:</strong> Giá hiển thị trên trang web là giá bán cuối cùng (đã bao gồm VAT). Tuy nhiên, trong một số trường hợp hiếm gặp xảy ra lỗi hệ thống hiển thị sai giá (giá quá thấp so với thực tế), chúng tôi có quyền hủy bỏ đơn hàng đó và hoàn lại toàn bộ số tiền khách đã thanh toán.
             </li>
             <li>
-              <strong className="text-white">Thanh toán an toàn:</strong> Antigravity hỗ trợ nhiều hình thức thanh toán gồm COD (Thanh toán khi nhận hàng), Chuyển khoản ngân hàng trực tuyến và Cổng thanh toán thẻ quốc tế qua Stripe an toàn, bảo mật tuyệt đối.
+              <strong className="text-white">Thanh toán an toàn:</strong> 4Customer hỗ trợ nhiều hình thức thanh toán gồm COD (Thanh toán khi nhận hàng), Chuyển khoản ngân hàng trực tuyến và Cổng thanh toán thẻ quốc tế qua Stripe an toàn, bảo mật tuyệt đối.
             </li>
           </ul>
         </div>
@@ -116,7 +116,7 @@ export default function TermsOfUsePage() {
               Chúng tôi nỗ lực tối đa để website luôn hoạt động ổn định và an toàn. Tuy nhiên, chúng tôi không chịu trách nhiệm đối với các rủi ro kỹ thuật nằm ngoài tầm kiểm soát như: nghẽn mạng internet diện rộng, bị hacker tấn công DDoS phá hoại dữ liệu, hoặc sự cố phần cứng máy chủ đám mây Cloud Hosting.
             </li>
             <li>
-              Quý khách có trách nhiệm sao lưu toàn bộ dữ liệu cá nhân bên trong thiết bị (điện thoại, laptop) trước khi gửi máy đến trung tâm bảo hành của Antigravity. Chúng tôi không chịu bất cứ trách nhiệm nào về việc mất mát dữ liệu lưu giữ trong thiết bị trong quá trình sửa chữa hoặc bảo hành.
+              Quý khách có trách nhiệm sao lưu toàn bộ dữ liệu cá nhân bên trong thiết bị (điện thoại, laptop) trước khi gửi máy đến trung tâm bảo hành của 4Customer. Chúng tôi không chịu bất cứ trách nhiệm nào về việc mất mát dữ liệu lưu giữ trong thiết bị trong quá trình sửa chữa hoặc bảo hành.
             </li>
           </ul>
         </div>
@@ -132,7 +132,7 @@ export default function TermsOfUsePage() {
             Giải quyết khiếu nại và luật áp dụng
           </p>
           <p>
-            Mọi tranh chấp phát sinh từ hoặc liên quan đến việc sử dụng trang web này hoặc hợp đồng mua bán sản phẩm tại Antigravity E-Shop trước tiên sẽ được giải quyết thông qua thương lượng hòa giải giữa hai bên nhằm đảm bảo quyền lợi tốt nhất cho khách hàng.
+            Mọi tranh chấp phát sinh từ hoặc liên quan đến việc sử dụng trang web này hoặc hợp đồng mua bán sản phẩm tại 4Customer trước tiên sẽ được giải quyết thông qua thương lượng hòa giải giữa hai bên nhằm đảm bảo quyền lợi tốt nhất cho khách hàng.
           </p>
           <p>
             Trong trường hợp không thể thỏa thuận đạt được tiếng nói chung, tranh chấp sẽ được đưa ra giải quyết tại Tòa án nhân dân có thẩm quyền tại Thành phố Hồ Chí Minh theo các quy định của Pháp luật nước Cộng hòa Xã hội Chủ nghĩa Việt Nam hiện hành.
@@ -154,7 +154,7 @@ export default function TermsOfUsePage() {
           </Link>
           <div className="flex items-center gap-2">
             <HelpCircle className="w-5 h-5 text-primary" />
-            <span className="text-sm font-extrabold uppercase tracking-wider">Điều khoản sử dụng Antigravity</span>
+            <span className="text-sm font-extrabold uppercase tracking-wider">Điều khoản sử dụng 4Customer</span>
           </div>
           <div className="w-20" /> {/* Giữ cân bằng */}
         </div>
@@ -201,7 +201,7 @@ export default function TermsOfUsePage() {
 
       {/* Footer bản quyền */}
       <footer className="border-t border-border py-6 bg-card/20 text-center text-xs text-muted-foreground mt-12">
-        <p>© 2026 Antigravity E-Shop. Bảo lưu mọi quyền.</p>
+        <p>© 2026 4Customer. Bảo lưu mọi quyền.</p>
       </footer>
     </div>
   );

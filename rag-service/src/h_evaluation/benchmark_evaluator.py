@@ -871,17 +871,18 @@ class BenchmarkEvaluator:
         if "turns" in record and record["turns"]:
             turns_res = []
             prev_tok, prev_lat, prev_calls, prev_outs = 0, 0.0, [], []
+            prev_input_tok, prev_output_tok = 0, 0
             for i, turn in enumerate(record["turns"]):
                 q = turn.get("question", "")
                 print(f"      🔄 {record.get('id','?')} turn {i+1}/{len(record['turns'])}: {q[:80]}...")
                 state, elapsed = self._invoke(app, q, tid, user_token=user_token)
-                res = self._extract_result(state, turn, elapsed, prev_tok, prev_lat, prev_calls, prev_outs)
-                prev_tok, prev_lat, prev_calls, prev_outs = (
-                    res["cumulative_total_tokens"],
-                    res["cumulative_latency"],
-                    res["cumulative_actual_tool_calls"],
-                    res["cumulative_tool_outputs"],
-                )
+                res = self._extract_result(state, turn, elapsed, prev_tok, prev_lat, prev_calls, prev_outs, prev_input_tok, prev_output_tok)
+                prev_tok = res["cumulative_total_tokens"]
+                prev_lat = res["cumulative_latency"]
+                prev_calls = res["cumulative_actual_tool_calls"]
+                prev_outs = res["cumulative_tool_outputs"]
+                prev_input_tok = res["cumulative_input_tokens"]
+                prev_output_tok = res["cumulative_output_tokens"]
                 print(f"         → ans_len={len(str(res.get('final_answer','')))} tools={len(res.get('actual_tool_calls',[]))} latency={elapsed:.2f}s")
                 turns_res.append({"turn": i + 1, **res})
             return {**base, "question": None, "turns": turns_res, "raw_record": record}
@@ -955,6 +956,8 @@ class BenchmarkEvaluator:
         prev_lat: float,
         prev_calls: List[Dict[str, Any]],
         prev_outputs: List[str],
+        prev_input_tok: int = 0,
+        prev_output_tok: int = 0,
     ) -> Dict[str, Any]:
         if not state:
             return {
@@ -973,12 +976,16 @@ class BenchmarkEvaluator:
                 "cumulative_total_tokens": prev_tok,
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cumulative_input_tokens": prev_input_tok,
+                "cumulative_output_tokens": prev_output_tok,
                 "error": "invoke_failed",
             }
 
         all_calls, all_outs = _extract_tool_calls(state)
         total_tokens = state.get("total_tokens", 0) or 0
         latency = state.get("latency", 0.0) or 0.0
+        input_tokens_cum = state.get("input_tokens", 0) or 0
+        output_tokens_cum = state.get("output_tokens", 0) or 0
         new_calls = all_calls[len(prev_calls):]
         new_outs = all_outs[len(prev_outputs):]
         return {
@@ -995,8 +1002,10 @@ class BenchmarkEvaluator:
             "cumulative_latency": latency,
             "turn_total_tokens": max(0, total_tokens - prev_tok),
             "cumulative_total_tokens": total_tokens,
-            "input_tokens": state.get("input_tokens", 0) or 0,
-            "output_tokens": state.get("output_tokens", 0) or 0,
+            "input_tokens": max(0, input_tokens_cum - prev_input_tok),
+            "output_tokens": max(0, output_tokens_cum - prev_output_tok),
+            "cumulative_input_tokens": input_tokens_cum,
+            "cumulative_output_tokens": output_tokens_cum,
         }
 
     # ------------------------------------------------------------------
@@ -1125,11 +1134,35 @@ class BenchmarkEvaluator:
         return pd.DataFrame(out)
 
     def _add_non_llm_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Thêm các metric deterministic (không phụ thuộc LLM judge)."""
+        """Thêm các metric deterministic (không phụ thuộc LLM judge).
+
+        Ngoài tool_calls_total và e2e_score, hàm này còn fix hồi tố
+        input_tokens/output_tokens bị cộng dồn (cumulative) trong multi-turn:
+        nếu phát hiện giá trị tăng đơn điệu theo turn trong cùng record_id,
+        tự động tính delta và ghi đè lại.
+        """
         df = df.copy()
         act_list = df["actual_tool_calls"].apply(lambda x: json.loads(x) if isinstance(x, str) else x)
         n_calls = [len(act) if isinstance(act, list) else 0 for act in act_list]
         df["tool_calls_total"] = n_calls
+
+        # --- Fix hồi tố: trừ delta cho input_tokens/output_tokens nếu cộng dồn ---
+        if "turn" in df.columns and "record_id" in df.columns:
+            df = df.sort_values(["record_id", "turn"])
+            for col in ["input_tokens", "output_tokens"]:
+                if col not in df.columns:
+                    continue
+                # Kiểm tra xem cột có bị cộng dồn không (tăng đơn điệu trong multi-turn)
+                needs_fix = False
+                for rid, g in df[df["turn"] > 1].groupby("record_id"):
+                    vals = g.sort_values("turn")[col].tolist()
+                    if len(vals) >= 2 and all(vals[i] >= vals[i - 1] for i in range(1, len(vals))):
+                        needs_fix = True
+                        break
+                if needs_fix:
+                    delta = df.groupby("record_id")[col].diff()
+                    # Lượt đầu tiên (diff = NaN) giữ nguyên giá trị gốc
+                    df[col] = delta.fillna(df[col]).clip(lower=0).astype(int)
 
         # E2E score kết hợp độ chính xác câu trả lời, chọn tool và tham số tool.
         def _e2e(row):
@@ -1169,12 +1202,16 @@ class BenchmarkEvaluator:
                 "pct_below_05": round(float((col < 0.5).mean() * 100), 1),
             }
 
-        def _calc_metric_stats(sub_df, metric):
+        def _calc_metric_stats(sub_df, metric, min_n: int = 3):
             if metric in ("context_precision", "context_recall") and "tool_calls_total" in sub_df.columns:
                 valid_sub = sub_df[sub_df["tool_calls_total"] > 0]
-                if not valid_sub.empty:
-                    return _stats(valid_sub, metric)
-                return {"mean": None, "median": None, "p5": None, "p95": None, "pct_below_05": None}
+                n = len(valid_sub)
+                if n >= min_n:
+                    stats = _stats(valid_sub, metric)
+                    stats["n"] = n
+                    return stats
+                # Không đủ mẫu để tính có ý nghĩa thống kê → trả None
+                return {"mean": None, "median": None, "p5": None, "p95": None, "pct_below_05": None, "n": n}
             return _stats(sub_df, metric)
 
         def _tool_dist(sub_df) -> Dict[str, int]:
@@ -1200,6 +1237,16 @@ class BenchmarkEvaluator:
         overall = {m: _calc_metric_stats(df, m) for m in all_metrics if m in df.columns}
         overall["tool_calls_dist"] = _tool_dist(df)
         overall.update(_token_avg(df))
+
+        # Tổng token toàn bộ benchmark (không phải mean per-turn)
+        def _token_sum(sub_df):
+            result = {}
+            for col_name in ("input_tokens", "output_tokens", "total_tokens"):
+                if col_name in sub_df.columns:
+                    col = pd.to_numeric(sub_df[col_name], errors="coerce").dropna()
+                    result[f"{col_name}_sum"] = int(col.sum()) if not col.empty else 0
+            return result
+        overall.update(_token_sum(df))
 
         by_cat = {}
         for cat, sub in df.groupby("category"):
@@ -1342,7 +1389,12 @@ class BenchmarkEvaluator:
         print(f"│ 📥 Input Tokens                              │ {overall.get('input_tokens',{}).get('mean',0.0):8.1f} │ {overall.get('input_tokens',{}).get('median',0.0):8.1f} │ {overall.get('input_tokens',{}).get('p95',0.0):8.1f} │")
         print(f"│ 📤 Output Tokens                             │ {overall.get('output_tokens',{}).get('mean',0.0):8.1f} │ {overall.get('output_tokens',{}).get('median',0.0):8.1f} │ {overall.get('output_tokens',{}).get('p95',0.0):8.1f} │")
         print(f"│ 🧮 Total Tokens                              │ {overall.get('total_tokens',{}).get('mean',0.0):8.1f} │ {overall.get('total_tokens',{}).get('median',0.0):8.1f} │ {overall.get('total_tokens',{}).get('p95',0.0):8.1f} │")
-        print("└──────────────────────────────────────────────┴──────────┴──────────┴──────────┘\n")
+        print("└──────────────────────────────────────────────┴──────────┴──────────┴──────────┘")
+        # Tổng token toàn bộ benchmark
+        in_sum = overall.get('input_tokens_sum', 0)
+        out_sum = overall.get('output_tokens_sum', 0)
+        tot_sum = overall.get('total_tokens_sum', 0)
+        print(f"📦 Tổng token toàn benchmark ({total_rows} mẫu): Input = {in_sum:,} | Output = {out_sum:,} | Total = {tot_sum:,}\n")
 
         # 3. TOOL DIST
         t_dist = overall.get("tool_calls_dist", {})

@@ -58,7 +58,7 @@ export default function WarrantyPolicyPage() {
           </p>
           <ul className="space-y-3 list-decimal pl-5">
             <li>
-              <strong className="text-foreground">Sản phẩm áp dụng:</strong> Toàn bộ các thiết bị phần cứng gồm Laptop, Điện thoại di động, Máy tính bảng, Tai nghe cao cấp, Đồng hồ thông minh mua mới chính hãng tại Antigravity.
+              <strong className="text-foreground">Sản phẩm áp dụng:</strong> Toàn bộ các thiết bị phần cứng gồm Laptop, Điện thoại di động, Máy tính bảng, Tai nghe cao cấp, Đồng hồ thông minh mua mới chính hãng tại 4Customer.
             </li>
             <li>
               <strong className="text-foreground">Thời gian áp dụng:</strong> Trong vòng 30 ngày kể từ ngày quý khách nhận hàng thành công (dựa trên hóa đơn điện tử hoặc biên nhận giao hàng).
@@ -144,7 +144,7 @@ export default function WarrantyPolicyPage() {
                     <div className="mt-2 space-y-1.5 pl-3 border-l-2 border-primary/40 text-xs text-foreground">
                       <div><strong className="text-primary font-extrabold">CareS</strong> - Trung tâm bảo hành ủy quyền Apple tại Việt Nam: Áp dụng đối với tất cả sản phẩm Apple mới.</div>
                       <div><strong>Trung tâm bảo hành của hãng</strong>: Áp dụng đối với các dòng sản phẩm Tivi, điện thoại và máy tính bảng chạy hệ điều hành Android.</div>
-                      <div><strong>Trung tâm Bảo Hành Điện Thoại Vui</strong> - Đối tác chiến lược của Antigravity: Áp dụng đối với tất cả các dòng sản phẩm còn lại và thiết bị cũ.</div>
+                      <div><strong>Trung tâm Bảo Hành Điện Thoại Vui</strong> - Đối tác chiến lược của 4Customer: Áp dụng đối với tất cả các dòng sản phẩm còn lại và thiết bị cũ.</div>
                     </div>
                   </li>
                 </ul>
@@ -202,7 +202,7 @@ export default function WarrantyPolicyPage() {
               </p>
               <ul className="space-y-2 list-disc pl-5 text-muted-foreground">
                 <li>
-                  <strong className="text-foreground">Phạm vi áp dụng:</strong> Thiết bị di động (Smartphone/Tablet) và Laptop mua kèm gói dịch vụ bảo hiểm tại Antigravity.
+                  <strong className="text-foreground">Phạm vi áp dụng:</strong> Thiết bị di động (Smartphone/Tablet) và Laptop mua kèm gói dịch vụ bảo hiểm tại 4Customer.
                 </li>
                 <li>
                   <strong className="text-foreground">Quyền lợi sửa chữa:</strong> Hỗ trợ chi phí sửa chữa lên tới <span className="text-primary font-bold">90%</span> giá trị hóa đơn sửa chữa linh kiện khi thiết bị vô tình gặp tai nạn rơi vỡ, nứt màn hình hoặc ngấm nước/chất lỏng trong quá trình sử dụng.
@@ -268,7 +268,7 @@ export default function WarrantyPolicyPage() {
           </Link>
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-primary" />
-            <span className="text-sm font-extrabold uppercase tracking-wider">Trung tâm bảo hành Antigravity</span>
+            <span className="text-sm font-extrabold uppercase tracking-wider">Trung tâm bảo hành 4Customer</span>
           </div>
           <div className="w-20" /> {/* Giữ cân bằng */}
         </div>
@@ -362,7 +362,7 @@ export default function WarrantyPolicyPage() {
 
       {/* Footer bản quyền */}
       <footer className="border-t border-border py-6 bg-card/20 text-center text-xs text-muted-foreground mt-12">
-        <p>© 2026 Antigravity E-Shop. Bảo lưu mọi quyền.</p>
+        <p>© 2026 4Customer. Bảo lưu mọi quyền.</p>
       </footer>
     </div>
   );

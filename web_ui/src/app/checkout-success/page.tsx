@@ -129,7 +129,7 @@ function CheckoutSuccessContent() {
           <div className="space-y-2">
             <h1 className="text-2xl sm:text-3xl font-extrabold text-foreground">Đặt hàng thành công!</h1>
             <p className="text-muted-foreground text-sm">
-              Cảm ơn quý khách đã tin tưởng và mua sắm tại Antigravity E-Shop. Đơn hàng của bạn đã được xác nhận thành công và đang được chuẩn bị đóng gói.
+              Cảm ơn quý khách đã tin tưởng và mua sắm tại 4Customer. Đơn hàng của bạn đã được xác nhận thành công và đang được chuẩn bị đóng gói.
             </p>
           </div>
 

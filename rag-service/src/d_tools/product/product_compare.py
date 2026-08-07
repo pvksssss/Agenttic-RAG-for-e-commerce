@@ -5,17 +5,17 @@ from configs.setting import settings
 from src.c_retrieval.product_retriever import ProductRetriever
 from app.core.security import supabase_anon_client
 
-# INITIALIZE RETRIEVER FOR SHARED USE
+# Khởi tạo ProductRetriever dùng chung
 product_retriever = ProductRetriever(config=config, settings=settings)
 
 
 def product_compare(product_names: List[str]) -> str:
     """
-    Compare technical specifications and details of multiple products.
-    Prices are fetched from Supabase in real-time using the product_id from Chroma.
+    So sánh thông số kỹ thuật và chi tiết của nhiều sản phẩm.
+    Giá sản phẩm được lấy thời gian thực từ Supabase bằng product_id từ ChromaDB.
     
     Args:
-        product_names (List[str]): List of specific product names to compare.
+        product_names (List[str]): Danh sách tên sản phẩm cụ thể cần so sánh.
     """
     try:
         if not product_names:
@@ -23,20 +23,20 @@ def product_compare(product_names: List[str]) -> str:
             
         comparison_data = []
         
-        # Query details for each product name in the list
+        # Truy vấn thông tin chi tiết cho từng tên sản phẩm trong danh sách
         for name in product_names:
-            # Call retrieve (limit is handled by slicing the first result [0])
+            # Gọi hàm retrieve (lấy kết quả đầu tiên [0])
             raw_products = product_retriever.retrieve(query_text=name)
             
             if raw_products:
-                best_match = raw_products[0]  # Get the top 1 reranked match
+                best_match = raw_products[0]  # Lấy kết quả khớp nhất có điểm Rerank cao nhất
                 doc_content = best_match["document"]
                 metadata = best_match["metadata"]
                 
                 product_name = doc_content.split('\n')[0].replace("Sản phẩm:", "").strip()
                 brand = metadata.get("brand", "Unknown")
                 
-                # Get fresh price/stock info from Supabase using product_id
+                # Lấy thông tin giá/tồn kho mới nhất từ Supabase bằng product_id
                 price_str = "Unknown"
                 stock_str = ""
                 discount_str = ""
@@ -71,13 +71,7 @@ def product_compare(product_names: List[str]) -> str:
                         pass
                 
                 if price_str == "Unknown":
-                    # Fallback to vector metadata price if Supabase lookup fails
-                    meta_price = metadata.get("price")
-                    if meta_price:
-                        try:
-                            price_str = f"{float(meta_price):,.0f} VNĐ"
-                        except (ValueError, TypeError):
-                            price_str = str(meta_price)
+                    price_str = "Giá liên hệ"
                 
                 comparison_data.append(
                     f"Product: {product_name}\n"
@@ -98,7 +92,7 @@ def product_compare(product_names: List[str]) -> str:
 
 
 
-# SCHEMA DEFINITION FOR LLM API REGISTRATION
+# ĐỊNH NGHĨA SCHEMA CHO ĐĂNG KÝ API LLM
 PRODUCT_COMPARE_SCHEMA = {
     "type": "function",
     "function": {

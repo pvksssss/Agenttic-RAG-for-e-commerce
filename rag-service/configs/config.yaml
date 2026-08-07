@@ -9,8 +9,8 @@ retrieval:
   policy:
     k_query: 5
     k_rerank: 2
-  graph_max_hops: 2 # number of traversal hops for graph retrieval
-  rrf_k: 60 # smoothing constant for Reciprocal Rank Fusion
+  graph_max_hops: 2 # Số bước duyệt qua các đỉnh trong đồ thị truy xuất (graph retrieval)
+  rrf_k: 60 # Hằng số làm mịn cho thuật toán Reciprocal Rank Fusion (RRF)
 
 generation:
   temperature: 1.0
@@ -24,7 +24,7 @@ agent:
 
 llm:
   google:
-    reasoning_effort: "MINIMAL" # options: "none", "default", "low", "medium", "high"
+    reasoning_effort: "MINIMAL" # Các tùy chọn: "none", "default", "low", "medium", "high"
     available:
       - "gemini-3.5-flash-lite"
       - "gemini-3.1-flash-lite"
@@ -32,7 +32,7 @@ llm:
       - "gemma-4-31b-it"
     
   groq:
-    reasoning_effort: "none" # options: "none", "low", "medium", "high"
+    reasoning_effort: "none" # Các tùy chọn: "none", "low", "medium", "high"
     available:
       - "openai/gpt-oss-120b"
       - "openai/gpt-oss-20b"
@@ -44,6 +44,14 @@ llm:
       - "google/gemini-2.5-flash"
       - "meta-llama/llama-3.3-70b-instruct:free"
       - "qwen/qwen3-235b-a22b:free"
+
+  # Ollama - mô hình local (tương thích OpenAI API tại localhost:11434)
+  ollama:
+    base_url: "http://localhost:11434/v1"  # Đường dẫn API tương thích OpenAI của Ollama
+    reasoning_effort: "none"               # Các tùy chọn: "none", "low", "medium", "high"
+    supports_tools: true                   # Mô hình có hỗ trợ gọi hàm (function calling/tools) không
+    available:
+      - "gemma4:e2b"                       # Gemma 4 E2B chạy cục bộ (local) qua Ollama
 
 
   # Cấu hình chỉ định model đang chạy thực tế cho từng tác vụ
@@ -59,10 +67,10 @@ llm:
 embedding:
   available:
     - "nvidia/llama-nemotron-embed-vl-1b-v2:free"  # Vision-Language, 2048 dims, đang dùng
-  active: "nvidia/llama-nemotron-embed-vl-1b-v2:free"  # Model đang dùng thực tế
+  active: "nvidia/llama-nemotron-embed-vl-1b-v2:free"  # Mô hình đang dùng thực tế
 
 
 rerank:
   available:
     - "nvidia/llama-nemotron-rerank-vl-1b-v2:free"  
-  active: "nvidia/llama-nemotron-rerank-vl-1b-v2:free"  
+  active: "nvidia/llama-nemotron-rerank-vl-1b-v2:free"  

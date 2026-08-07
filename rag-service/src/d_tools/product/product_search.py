@@ -98,22 +98,22 @@ def product_search(
     limit: int = 3
 ) -> str:
     """
-    Search for one or multiple products. Each item in `queries` is a dict:
+    Tìm kiếm một hoặc nhiều sản phẩm. Mỗi phần tử trong `queries` là một dictionary:
       {
         "keyword": str,
-        "brand": str (optional),
-        "category": str (optional),
-        "min_price": float (optional),
-        "max_price": float (optional),
-        "name_contains": str (optional),   # SQL pre-filter on product name, e.g. 'MacBook Air'
-        "mode": "rank" | "lines" (optional, default "rank"),
-        "include_details": bool (optional, default False),
-        "need_price_info": bool (optional, default False),
-        "limit": int (optional, default 3)
+        "brand": str (tùy chọn),
+        "category": str (tùy chọn),
+        "min_price": float (tùy chọn),
+        "max_price": float (tùy chọn),
+        "name_contains": str (tùy chọn),   # Lọc sơ bộ SQL trên tên sản phẩm, vd: 'MacBook Air'
+        "mode": "rank" | "lines" (tùy chọn, mặc định "rank"),
+        "include_details": bool (tùy chọn, mặc định False),
+        "need_price_info": bool (tùy chọn, mặc định False),
+        "limit": int (tùy chọn, mặc định 3)
       }
  
-    mode="rank"  -> top-N semantic products (default).
-    mode="lines" -> group results by product line/series and return one representative per line.
+    mode="rank"  -> top-N sản phẩm theo độ tương quan ngữ nghĩa (mặc định).
+    mode="lines" -> nhóm kết quả theo dòng máy/series và trả về 1 đại diện cho mỗi dòng.
     """
     try:
         all_results = []
@@ -355,7 +355,7 @@ def product_search(
                             if product_id.isdigit() and int(product_id) in price_info_map:
                                 info = price_info_map[int(product_id)]
                                 display_price = info["final_price"] if info["final_price"] else info["price"]
-                                price_str = f"{display_price:,.0f} VND" if display_price else "Contact for price"
+                                price_str = f"{display_price:,.0f} VND" if display_price else "Liên hệ giá"
                                 price_line = f"- Price: {price_str}"
                                 if info["final_price"] and info["final_price"] != info["price"]:
                                     price_line += f" | Original: {info['price']:,.0f} VND"

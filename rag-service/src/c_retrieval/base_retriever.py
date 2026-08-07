@@ -10,41 +10,41 @@ class BaseRetriever:
         self.k_query = k_query
         self.k_rerank = k_rerank
 
-        # Initialize lower-level services
+        # Khởi tạo các dịch vụ tầng thấp
         self.db = ChromaVectorDatabase()
         self.embedding_service = EmbeddingService(config=config, settings=settings)
         self.rerank_service = RerankService(config=config, settings=settings)
 
     def retrieve(self, query_text: str, brand: str = None, min_price: float = None, max_price: float = None, limit: int = None, product_ids: list = None) -> list:
         """
-        Receive raw query from user, build dynamic metadata filters, query ChromaDB, and Rerank.
-        Supports dynamic adjustment of result sizes based on requested limit.
+        Nhận câu truy vấn thô từ người dùng, xây dựng bộ lọc metadata động, truy vấn ChromaDB và Rerank.
+        Hỗ trợ điều chỉnh linh hoạt số lượng kết quả dựa trên giới hạn (limit) yêu cầu.
         
         Args:
-            query_text: The search query text
-            brand: Filter by brand (legacy, use product_ids instead for new flow)
-            min_price: Filter by minimum price (legacy, use product_ids instead for new flow)
-            max_price: Filter by maximum price (legacy, use product_ids instead for new flow)
-            limit: Maximum number of results to return
-            product_ids: List of product IDs to filter by (from Supabase pre-filtering)
+            query_text: Văn bản câu truy vấn tìm kiếm
+            brand: Lọc theo thương hiệu (phương thức cũ, luồng mới nên dùng product_ids)
+            min_price: Lọc theo giá tối thiểu (phương thức cũ, luồng mới nên dùng product_ids)
+            max_price: Lọc theo giá tối đa (phương thức cũ, luồng mới nên dùng product_ids)
+            limit: Số lượng kết quả tối đa cần trả về
+            product_ids: Danh sách ID sản phẩm cần lọc (từ bước lọc sơ bộ trên Supabase)
         """
-        # Step 1: Dynamically scale query and rerank limits if requested limit exceeds config defaults
+        # Bước 1: Tự động mở rộng giới hạn query và rerank nếu limit yêu cầu vượt mặc định
         k_rerank_active = self.k_rerank
         k_query_active = self.k_query
         
         if limit is not None:
             k_rerank_active = max(limit, self.k_rerank)
-            # Ensure ChromaDB returns at least 3x candidate pool for Reranker
+            # Đảm bảo ChromaDB trả về tập ứng viên gấp ít nhất 3 lần cho mô hình Reranker
             k_query_active = max(limit * 3, self.k_query)
 
-        # Step 2: Build dynamic where clause for ChromaDB metadata filtering
-        # Priority: product_ids (new flow) > brand/min_price/max_price (legacy)
+        # Bước 2: Xây dựng điều kiện lọc where động cho metadata ChromaDB
+        # Ưu tiên: product_ids (luồng mới) > brand/min_price/max_price (luồng cũ)
         where_clause = self._build_where_clause(brand, min_price, max_price, product_ids)
 
-        # Step 3: Convert query to Vector Embedding
+        # Bước 3: Chuyển đổi câu truy vấn thành Vector Embedding
         query_vector = self.embedding_service.get_embedding(query_text)
 
-        # Step 4: Query ChromaDB to get raw results
+        # Bước 4: Truy vấn ChromaDB để lấy kết quả thô
         raw_results = self.db.query(
             collection_name=self.collection_name,
             query_embeddings=[query_vector],
@@ -55,7 +55,7 @@ class BaseRetriever:
         if not raw_results or not raw_results.get("documents") or not raw_results["documents"][0]:
             return []
 
-        # Step 5: Pass to RerankService to get best results
+        # Bước 5: Đưa vào RerankService để lấy danh sách kết quả tốt nhất
         documents_for_rerank = [{"text": doc} for doc in raw_results["documents"][0]]
         reranked_results = self.rerank_service.get_rerank(
             query_text=query_text,
@@ -63,7 +63,7 @@ class BaseRetriever:
             top_n=k_rerank_active
         )
 
-        # Step 5: Combine metadata and return
+        # Bước 6: Tổng hợp metadata và trả về kết quả cuối cùng
         final_documents = []
         for item in reranked_results:
             idx = item["index"]
@@ -78,17 +78,17 @@ class BaseRetriever:
         return final_documents
 
     def _build_where_clause(self, brand: str = None, min_price: float = None, max_price: float = None, product_ids: list = None) -> dict:
-        """Build dynamic where filter dictionary according to ChromaDB filter specs."""
+        """Xây dựng dictionary điều kiện lọc where động theo đúng chuẩn ChromaDB."""
         conditions = []
         
-        # Priority 1: Filter by product_ids (new flow from Supabase pre-filtering)
+        # Ưu tiên 1: Lọc theo product_ids (luồng mới từ lọc sơ bộ Supabase)
         if product_ids:
             str_ids = [str(pid) for pid in product_ids if pid is not None]
             conditions.append({"product_id": {"$in": str_ids}})
         else:
-            # Priority 2: Legacy filters (brand, min_price, max_price)
+            # Ưu tiên 2: Bộ lọc cũ (brand, min_price, max_price)
             if brand:
-                # Case-insensitive / exact brand match
+                # Khớp chính xác thương hiệu
                 conditions.append({"brand": {"$eq": brand}})
             if min_price is not None:
                 conditions.append({"price": {"$gte": min_price}})

@@ -5,7 +5,7 @@ from supabase import create_client, Client
 from configs.setting import settings
 
 class SupabaseDataLoader:
-    """Loader responsible for connecting and retrieving raw data from Supabase Postgres"""
+    """Bộ nạp dữ liệu chịu trách nhiệm kết nối và lấy dữ liệu thô từ Supabase Postgres"""
     
     def __init__(self):
         self.supabase_url = settings.SUPABASE_URL
@@ -17,7 +17,7 @@ class SupabaseDataLoader:
         self.client: Client = create_client(self.supabase_url, self.supabase_key)
 
     def load_products(self) -> List[Dict[str, Any]]:
-        """Load all products from the Supabase products table"""
+        """Nạp toàn bộ sản phẩm từ bảng products trong Supabase"""
         try:
             print("[Loader] Đang tải dữ liệu sản phẩm từ Supabase...")
             products = []
@@ -46,7 +46,7 @@ class SupabaseDataLoader:
             return []
 
     def load_policies(self) -> List[Dict[str, Any]]:
-        """Load all policies from the Supabase policies table"""
+        """Nạp toàn bộ chính sách từ bảng policies trong Supabase"""
         try:
             print("[Loader] Đang tải dữ liệu chính sách từ Supabase...")
             response = self.client.table("policies").select("*").execute()
@@ -54,8 +54,8 @@ class SupabaseDataLoader:
             
             policies = []
             for p in db_policies:
-                # Format data to be 100% compatible with the old local file loader
-                # but add database ID, Title, and Category to improve RAG metadata
+                # Định dạng dữ liệu tương thích 100% với bộ nạp file local cũ
+                # đồng thời thêm ID database, Title và Category để nâng cao metadata RAG
                 policies.append({
                     "id": p.get("id"),
                     "title": p.get("title"),

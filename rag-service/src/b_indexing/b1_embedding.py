@@ -4,10 +4,10 @@ from typing import List
 from configs.setting import settings
 
 class EmbeddingService:
-    """Service class for handling text embeddings using OpenRouter API."""
+    """Lớp dịch vụ xử lý tạo vector embedding cho văn bản thông qua OpenRouter API."""
     
     def __init__(self, api_key: str = None, model: str = None, config=None, settings=None):
-        # Priority: manual api_key > api_key from settings object > api_key from global settings import
+        # Thứ tự ưu tiên: api_key truyền tay > api_key từ đối tượng settings > api_key từ global settings import
         if api_key:
             self.api_key = api_key
         elif settings:
@@ -19,7 +19,7 @@ class EmbeddingService:
         if not self.api_key or "your-openrouter" in self.api_key:
             raise ValueError("Vui lòng điền OPENROUTER_API_KEY thật vào file .env!")
   
-        # Priority: manual 'model' parameter > config.yaml > default fallback
+        # Thứ tự ưu tiên: tham số 'model' truyền tay > cấu hình config.yaml > mặc định dự phòng
         if model:
             self.model = model
         elif config and hasattr(config, 'embedding') and hasattr(config.embedding, 'active'):
@@ -27,12 +27,12 @@ class EmbeddingService:
         elif config and hasattr(config, 'embedding_model'):
             self.model = config.embedding_model
         else:
-            self.model = "nvidia/llama-nemotron-embed-vl-1b-v2:free"  # Safe fallback
+            self.model = "nvidia/llama-nemotron-embed-vl-1b-v2:free"  # Mô hình mặc định an toàn
             
         self.url = "https://openrouter.ai/api/v1/embeddings"
           
     def clean_image_urls(self, text: str) -> str:
-        """Remove absolute/relative image URLs to prevent OpenRouter API from misinterpreting them"""
+        """Loại bỏ các đường dẫn URL hình ảnh tuyệt đối/tương đối để tránh OpenRouter API hiểu nhầm"""
         if not text:
             return ""
         import re
@@ -42,18 +42,18 @@ class EmbeddingService:
     
     def get_embedding(self, text: str, max_retries: int = 3, timeout: int = 15) -> List[float]:
         """
-        Call OpenRouter API to get a 2048-dimensional embedding vector.
+        Gọi OpenRouter API để lấy vector embedding 2048 chiều.
         
         Args:
-            text: Text to be embedded
-            max_retries: Number of retries when an error occurs (default: 3)
-            timeout: Request timeout in seconds (default: 15)
+            text: Đoạn văn bản cần tạo embedding
+            max_retries: Số lần thử lại khi gặp lỗi (mặc định: 3)
+            timeout: Thời gian chờ tối đa cho mỗi yêu cầu tính bằng giây (mặc định: 15)
             
         Returns:
-            List[float]: 2048-dimensional embedding vector
+            List[float]: Vector embedding 2048 chiều
             
         Raises:
-            ValueError: If embedding cannot be retrieved after max_retries
+            ValueError: Nếu không thể lấy embedding sau max_retries lần thử
         """
         cleaned_text = self.clean_image_urls(text)
         headers = {

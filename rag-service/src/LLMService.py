@@ -9,6 +9,7 @@ class LLMService:
         self.config = config
         self._groq_client = None
         self._gemini_client = None
+        self._ollama_client = None
         self._gemini_keys = None
         self._groq_keys = None
         self._gemini_key_index = 0
@@ -369,3 +370,68 @@ class LLMService:
                     continue
  
                 raise
+
+    # ------------------------------------------------------------------
+    # Ollama (model local - OpenAI-compatible, tối giản cho local)
+    # ------------------------------------------------------------------
+    def _get_ollama_client(self):
+        """Khởi tạo lười (Lazy) Ollama client (OpenAI-compatible tại localhost)."""
+        if self._ollama_client is None:
+            from openai import OpenAI
+            base_url = getattr(self.config.llm.ollama, "base_url", "http://localhost:11434/v1")
+            self._ollama_client = OpenAI(
+                base_url=base_url,
+                api_key="ollama",  # Ollama local không cần key thật
+            )
+        return self._ollama_client
+
+    def call_ollama(
+        self,
+        model: str,
+        messages: list,
+        tools: list = None,
+        temperature: float = None,
+        max_tokens: int = None,
+        stream: bool = False,
+    ):
+        """
+        Gọi model local qua Ollama (OpenAI-compatible).
+
+        Tối giản cho local: không có key rotation, không retry phức tạp,
+        không rate-limit. Chỉ cần model chạy trên Ollama là gọi được.
+
+        Args:
+            model: Tên model trong Ollama (vd: "gemma4:2b").
+            messages: Lịch sử hội thoại chuẩn OpenAI (role/content/tool_calls).
+            tools: List JSON Schema (chuẩn OpenAI Function Calling) - tùy chọn.
+            temperature: Nhiệt độ sinh (mặc định lấy từ config.generation).
+            max_tokens: Số token tối đa (mặc định lấy từ config.generation).
+            stream: Có stream hay không (mặc định False - local thường không cần).
+
+        Returns:
+            OpenAI ChatCompletion object (có .choices[0].message.tool_calls nếu gọi tool).
+        """
+        kwargs = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature if temperature is not None else self.config.generation.temperature,
+            "max_tokens": max_tokens if max_tokens is not None else self.config.generation.max_tokens,
+            "stream": stream,
+        }
+
+        # Nếu model hỗ trợ tool calling, đăng ký tools
+        if tools and getattr(self.config.llm.ollama, "supports_tools", True):
+            formatted_tools = []
+            for tool in tools:
+                if "type" not in tool:
+                    formatted_tools.append({"type": "function", "function": tool})
+                else:
+                    formatted_tools.append(tool)
+            kwargs["tools"] = formatted_tools
+
+        client = self._get_ollama_client()
+        try:
+            return client.chat.completions.create(**kwargs)
+        except Exception as e:
+            print(f"⚠️ [Ollama] Lỗi gọi model '{model}': {e}")
+            raise

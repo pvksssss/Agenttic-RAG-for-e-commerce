@@ -3,35 +3,35 @@ from configs.GetConfig import config
 from configs.setting import settings
 from src.c_retrieval.policy_retriever import PolicyRetriever
 
-# INITIALIZE RETRIEVER FOR SHARED USE
+# Khởi tạo PolicyRetriever dùng chung
 policy_retriever = PolicyRetriever(config=config, settings=settings)
 
 def policy_search(key_word: str, limit: int = 3) -> str:
     """
-    Search for store policies (returns, warranty, shipping, etc.) based on search terms.
+    Tìm kiếm các chính sách của cửa hàng (đổi trả, bảo hành, vận chuyển, v.v.) dựa trên từ khóa.
 
     Args:
-        key_word (str): The search query extracted and optimized by the LLM (noise-filtered, concise search term).
-        limit (int): Maximum number of policy segments to return (default: 3).
+        key_word (str): Từ khóa tìm kiếm được trích xuất và tối ưu bởi LLM (ngắn gọn, đã lọc nhiễu).
+        limit (int): Số lượng đoạn văn bản chính sách tối đa cần trả về (mặc định: 3).
     """
     try:
-        # Call the retrieval service layer
+        # Gọi tầng dịch vụ truy vấn (PolicyRetriever)
         raw_policies = policy_retriever.retrieve(query_text=key_word)
         
         if not raw_policies:
             return "No matching store policies found."
 
-        # Limit the results based on LLM request or default
+        # Giới hạn số lượng kết quả theo yêu cầu của LLM hoặc mặc định
         selected_policies = raw_policies[:limit]
         
-        # Format raw data list into a structured string for the LLM
+        # Đóng gói danh sách dữ liệu thô thành chuỗi văn bản cấu trúc cho LLM
         formatted_list = []
         for i, item in enumerate(selected_policies):
             doc_content = item["document"]
             metadata = item["metadata"]
             score = item["score"]
             
-            # Extract policy section or source if available in metadata
+            # Trích xuất phân đoạn (section) hoặc loại chính sách từ metadata nếu có
             section = metadata.get("section", "General Policy")
             policy_type = metadata.get("policy_type", "FAQ")
             
@@ -46,7 +46,7 @@ def policy_search(key_word: str, limit: int = 3) -> str:
         return f"Error occurred during policy retrieval: {str(e)}"
 
 # =====================================================================
-# 3. SCHEMA DEFINITION FOR LLM API REGISTRATION
+# ĐỊNH NGHĨA SCHEMA CHO ĐĂNG KÝ API LLM
 # =====================================================================
 POLICY_SEARCH_SCHEMA = {
     "type": "function",

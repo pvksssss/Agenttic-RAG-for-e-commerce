@@ -8,37 +8,37 @@ def order_lookup(
     order_id: Optional[str] = None
 ) -> str:
     """
-    Look up order details for the current authenticated user.
-    Uses dynamic user client (RLS) if user_token is provided.
-    Falls back to admin client with hardcoded user_id check if user_token is missing.
+    Tra cứu chi tiết đơn hàng cho người dùng đã xác thực hiện tại.
+    Sử dụng client người dùng động (RLS) nếu user_token được cung cấp.
+    Fallback sang admin client với lọc user_id cấp ứng dụng nếu thiếu user_token.
     
     Args:
-        current_user_id (str): The authenticated user's UUID (injected automatically).
-        user_token (str, optional): The user's JWT access token (injected automatically).
-        order_id (str, optional): The specific UUID of the order to query.
+        current_user_id (str): UUID của người dùng đã xác thực (được tự động inject).
+        user_token (str, optional): JWT access token của người dùng (được tự động inject).
+        order_id (str, optional): UUID cụ thể của đơn hàng cần tra cứu.
     """
     try:
         if not current_user_id:
             return "System notification: The user is currently unauthenticated. Please politely instruct the user to log in or authenticate their account to view order details."
             
-        # 1. Choose Supabase Client based on authentication token
-        # Dual-layer security: 
-        # - If user_token exists, use dynamic client (Database-level RLS applies).
-        # - Otherwise, use admin client with application-level filter for fallback.
+        # 1. Chọn Supabase Client dựa trên token xác thực
+        # Bảo mật 2 lớp: 
+        # - Nếu có user_token, dùng dynamic client (áp dụng RLS cấp database).
+        # - Ngược lại, dùng admin client với bộ lọc cấp ứng dụng để fallback.
         if user_token:
             db_client = get_user_supabase_client(user_token)
         else:
             db_client = supabase_admin_client
             
         # ----------------------------------------------------
-        # CASE 1: Retrieve details of a specific order
+        # TRƯỜNG HỢP 1: Tra cứu chi tiết một đơn hàng cụ thể
         # ----------------------------------------------------
         if order_id:
             response = (
                 db_client.table("orders")
                 .select("*")
                 .eq("id", order_id)
-                .eq("user_id", current_user_id)  # Extra safety barrier (Application level)
+                .eq("user_id", current_user_id)  # Lớp bảo mật bổ sung (Cấp ứng dụng)
                 .execute()
             )
             
@@ -47,7 +47,7 @@ def order_lookup(
                 
             order = response.data[0]
             
-            # Format order items
+            # Đóng gói danh sách sản phẩm trong đơn hàng
             items_raw = order.get("items", [])
             items_str = ""
             if isinstance(items_raw, list):
@@ -69,17 +69,17 @@ def order_lookup(
             )
             
         # ----------------------------------------------------
-        # CASE 2: Retrieve a list of all recent orders
+        # TRƯỜNG HỢP 2: Lấy danh sách tất cả các đơn hàng gần đây
         # ----------------------------------------------------
         else:
-            # We select 'items' as well to let the AI Agent inspect the products inside 
-            # and automatically resolve queries like "Where is my Samsung S25?"
+            # Lấy thêm trường 'items' để AI Agent có thể kiểm tra danh sách sản phẩm bên trong
+            # và tự động giải quyết các câu hỏi như "Đơn hàng Samsung S25 của tôi đâu?"
             response = (
                 db_client.table("orders")
                 .select("id", "status", "total", "created_at", "items")
                 .eq("user_id", current_user_id)
                 .order("created_at", desc=True)
-                .limit(5)  # Get the top 5 most recent orders
+                .limit(5)  # Lấy tối đa 5 đơn hàng gần đây nhất
                 .execute()
             )
             
@@ -88,7 +88,7 @@ def order_lookup(
                 
             orders_list = []
             for i, order in enumerate(response.data):
-                # Extract and format product names for each order to help LLM matching
+                # Trích xuất và định dạng tên sản phẩm cho từng đơn hàng giúp LLM khớp thông tin
                 items_raw = order.get("items", [])
                 item_names = []
                 if isinstance(items_raw, list):
@@ -114,7 +114,7 @@ def order_lookup(
         return f"Error occurred during order lookup: {str(e)}"
 
 # =====================================================================
-# SCHEMA DEFINITION FOR LLM API REGISTRATION
+# ĐỊNH NGHĨA SCHEMA CHO ĐĂNG KÝ API LLM
 # =====================================================================
 ORDER_LOOKUP_SCHEMA = {
     "type": "function",
@@ -141,8 +141,8 @@ ORDER_LOOKUP_SCHEMA = {
                     )
                 }
             },
-            # Note: current_user_id and user_token are NOT in the JSON schema properties.
-            # They will be injected automatically by the Python agent before invocation.
+            # Lưu ý: current_user_id và user_token KHÔNG nằm trong thuộc tính JSON schema.
+            # Chúng sẽ được tự động inject bởi Python agent trước khi thực thi tool.
             "required": []
         }
     }

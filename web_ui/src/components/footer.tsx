@@ -11,9 +11,9 @@ export default function Footer() {
           <div className="space-y-4">
             <h3 className="text-foreground font-bold text-lg flex items-center gap-2">
               <span className="bg-primary px-2 py-1 rounded text-primary-foreground text-xs font-bold shadow-md shadow-primary/20">
-                AG
+                4C
               </span>
-              Antigravity E-Shop
+              4Customer
             </h3>
             <p className="text-muted-foreground text-xs leading-relaxed">
               Trang web thương mại điện tử chuyên nghiệp cung cấp các thiết bị công nghệ chính hãng hàng đầu Việt Nam. Tích hợp giải pháp AI hỗ trợ 24/7.
@@ -82,14 +82,14 @@ export default function Footer() {
             </p>
             <p className="flex items-center gap-2">
               <Mail className="w-3.5 h-3.5 flex-shrink-0 text-primary" />
-              <span>support@antigravity-eshop.com</span>
+              <span>support@4customer.com</span>
             </p>
           </div>
         </div>
 
         {/* BẢN QUYỀN */}
         <div className="border-t border-border pt-8 flex flex-col md:flex-row items-center justify-between gap-4 text-xs">
-          <p>© {new Date().getFullYear()} Antigravity E-Shop. Tất cả các quyền được bảo lưu.</p>
+          <p>© {new Date().getFullYear()} 4Customer. Tất cả các quyền được bảo lưu.</p>
           <div className="flex gap-4">
             <span className="hover:text-foreground cursor-pointer transition-colors">Điều khoản dịch vụ</span>
             <span className="hover:text-foreground cursor-pointer transition-colors">Bảo mật thông tin</span>

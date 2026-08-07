@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Optional
 from configs.setting import settings
 
 class ChromaVectorDatabase:
-    """Class for managing ChromaDB vector database operations."""
+    """Lớp quản lý các thao tác với cơ sở dữ liệu vector ChromaDB."""
     
     def __init__(self, persist_directory: str = None):
         self.persist_directory = persist_directory or settings.vector_db_absolute_path
@@ -11,7 +11,7 @@ class ChromaVectorDatabase:
         self._collections = {}
     
     def get_or_create_collection(self, name: str):
-        """Get or create a collection by name."""
+        """Lấy hoặc tạo một bộ sưu tập (collection) theo tên."""
         if name not in self._collections:
             self._collections[name] = self.client.get_or_create_collection(
                 name=name,
@@ -27,7 +27,7 @@ class ChromaVectorDatabase:
         documents: List[str],
         metadatas: List[Dict[str, Any]]
     ):
-        """Add documents to a collection."""
+        """Thêm danh sách tài liệu vào bộ sưu tập."""
         collection = self.get_or_create_collection(collection_name)
         collection.add(
             ids=ids,
@@ -37,15 +37,15 @@ class ChromaVectorDatabase:
         )
     
     def list_collections(self):
-        """List all collections in the database."""
+        """Liệt kê tất cả các bộ sưu tập trong cơ sở dữ liệu."""
         return self.client.list_collections()
     
     def get_collection(self, name: str):
-        """Get a specific collection by name."""
+        """Lấy bộ sưu tập cụ thể theo tên."""
         return self.client.get_collection(name=name)
     
     def count_documents(self, collection_name: str) -> int:
-        """Count documents in a collection."""
+        """Đếm tổng số tài liệu trong bộ sưu tập."""
         collection = self.get_or_create_collection(collection_name)
         return collection.count()
 
@@ -56,7 +56,7 @@ class ChromaVectorDatabase:
         n_results: int = 5,
         where: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Query similar documents from a collection."""
+        """Truy vấn các tài liệu tương đồng từ bộ sưu tập."""
         collection = self.get_or_create_collection(collection_name)
         return collection.query(
             query_embeddings=query_embeddings,
@@ -66,14 +66,14 @@ class ChromaVectorDatabase:
     
     def get_all_documents(self, collection_name: str, limit: int = None) -> Dict[str, Any]:
         """
-        Get all documents from a collection (for benchmark data generation).
+        Lấy toàn bộ tài liệu từ bộ sưu tập (phục vụ sinh dữ liệu benchmark).
         
         Args:
-            collection_name: Name of the collection
-            limit: Maximum number of documents to return (None = all)
+            collection_name: Tên của bộ sưu tập
+            limit: Số lượng tài liệu tối đa cần lấy (None = lấy tất cả)
             
         Returns:
-            Dict with keys: ids, documents, metadatas, embeddings
+            Dict chứa các khóa: ids, documents, metadatas, embeddings
         """
         collection = self.get_or_create_collection(collection_name)
         count = collection.count()
@@ -81,7 +81,7 @@ class ChromaVectorDatabase:
         if limit is not None:
             count = min(count, limit)
         
-        # Get all documents using get() with ids=None
+        # Lấy tất cả tài liệu bằng hàm get() với ids=None
         result = collection.get(
             limit=count if limit else None
         )

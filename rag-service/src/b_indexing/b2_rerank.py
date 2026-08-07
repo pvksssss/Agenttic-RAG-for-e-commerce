@@ -3,7 +3,7 @@ import time
 from typing import List, Dict, Any
 
 class RerankService:
-    """Service class for reranking documents using OpenRouter API."""
+    """Lớp dịch vụ thực hiện sắp xếp lại (reranking) danh sách tài liệu sử dụng OpenRouter API."""
     
     def __init__(self, api_key: str = None, model: str = None, config=None, settings=None):
         if api_key:
@@ -35,15 +35,15 @@ class RerankService:
         timeout: int = 15
     ) -> List[Dict[str, Any]]:
         """
-        Rerank documents based on relevance to the query.
+        Sắp xếp lại danh sách tài liệu dựa trên độ tương quan với câu truy vấn.
         
         Args:
-            query_text: The search query
-            documents: List of documents in the format [{"text": "..."}, {"image": "..."}]
-            top_n: Number of top results to return
+            query_text: Câu truy vấn tìm kiếm
+            documents: Danh sách tài liệu dạng [{"text": "..."}, {"image": "..."}]
+            top_n: Số lượng kết quả hàng đầu cần trả về
             
         Returns:
-            List[Dict[str, Any]]: List of reranked results with relevance scores
+            List[Dict[str, Any]]: Danh sách các kết quả đã được sắp xếp lại kèm điểm số tương quan
         """
         headers = {
             "Authorization": f"Bearer {self.api_key}",

@@ -222,10 +222,10 @@ export default function Header() {
         {/* LOGO */}
         <Link href="/" className="flex items-center gap-2 group">
           <span className="bg-primary p-2 rounded-lg text-primary-foreground font-bold shadow-md shadow-primary/20 transition-all">
-            AG
+            4C
           </span>
           <span className="text-xl font-extrabold bg-gradient-to-r from-foreground to-primary bg-clip-text text-transparent group-hover:text-primary transition-all">
-            Antigravity E-Shop
+            4Customer
           </span>
         </Link>
 

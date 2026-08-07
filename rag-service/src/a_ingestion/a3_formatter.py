@@ -2,22 +2,22 @@ import re
 from typing import Tuple, Optional, Dict, Any
 
 class DataFormatter:
-    """Class for formatting product and policy data."""
+    """Lớp thực hiện định dạng dữ liệu sản phẩm và chính sách."""
     
     @staticmethod
     def extract_dimensions(dim_str: Optional[str]) -> Tuple[Optional[float], Optional[float], Optional[float]]:
         """
-        Extract 3 real numbers (Length, Width, Thickness) from any dimension string.
-        Return a tuple: (Length, Width, Thickness) as floats.
-        If 3 numbers are not found or the string is empty, return (None, None, None).
+        Trích xuất 3 số thực (Dài, Rộng, Dày) từ chuỗi kích thước bất kỳ.
+        Trả về tuple: (Dài, Rộng, Dày) dạng float.
+        Nếu không tìm thấy đủ 3 số hoặc chuỗi rỗng, trả về (None, None, None).
         """
         if not dim_str or not isinstance(dim_str, str):
             return None, None, None
         
-        # Find all real numbers or integers in the string
+        # Tìm tất cả số thực hoặc số nguyên trong chuỗi
         numbers = re.findall(r"\d+(?:\.\d+)?", dim_str)
         
-        # Check if at least 3 numbers are found
+        # Kiểm tra nếu tìm thấy ít nhất 3 số
         if len(numbers) >= 3:
             try:
                 length = float(numbers[0])     
@@ -33,33 +33,33 @@ class DataFormatter:
 
     def format_product_to_text(self, prod: Dict[str, Any]) -> str:
         """
-        Parse the product JSON object and combine it into a 
-        unified text document (Unified Text Document).
+        Phân tích đối tượng JSON sản phẩm và gộp thành một đoạn văn bản hợp nhất
+        (Unified Text Document).
         """
-        # 1. Get and format level-1 basic information
+        # 1. Lấy và định dạng thông tin cơ bản cấp 1
         name = prod.get("name", "Không rõ tên")
         brand = prod.get("brand", "Không rõ thương hiệu")
         category = prod.get("category", "Sản phẩm")
 
-        # 2. Parse and clean technical specifications (specs)
+        # 2. Phân tích và làm sạch các thông số kỹ thuật (specs)
 
-        # Get specs from the nested specs field, if nested specs is empty, get from level-1 specs
+        # Lấy specs từ trường specs lồng nhau, nếu rỗng thì lấy từ trường cấp 1
         specs_dict = prod.get("specs", {}) or {}
         
-        # Processor (CPU, Chipset)
+        # Bộ vi xử lý (CPU, Chipset)
         cpu = prod.get("cpu")
         if not cpu and "Chipset" in specs_dict:
             cpu = specs_dict.get("Chipset")
 
-        # GPU, Graphics Card
+        # Đồ họa (GPU, Card màn hình)
         gpu = prod.get("gpu") or specs_dict.get("vga") or specs_dict.get("laptop_vga_filter")
-        # RAM 
+        # Bộ nhớ RAM 
         ram = prod.get("ram") or specs_dict.get("RAM")
 
-        # Storage capacity (for laptops/phones)
+        # Dung lượng lưu trữ (cho laptop/điện thoại)
         storage = specs_dict.get("o_cung_laptop") or prod.get("storage") or specs_dict.get("Luu tru")
 
-        # Display information
+        # Thông tin màn hình
         display_size = prod.get("display_size") or specs_dict.get("Man hinh")
         display_resolution = prod.get("display_resolution") or specs_dict.get("Do phan giai")
         display_type = specs_dict.get("display_type") or prod.get("display_type") or None
@@ -79,16 +79,16 @@ class DataFormatter:
             or None
         )
 
-        # Device battery
+        # Pin thiết bị
         battery = prod.get("battery") or specs_dict.get("Pin") or specs_dict.get("battery")
 
-        # Operating System (OS)
+        # Hệ điều hành (OS)
         os = prod.get("os") or specs_dict.get("HDH") or None
 
-        # Weight
+        # Trọng lượng
         weight = prod.get("weight") or specs_dict.get("product_weight") or None
 
-        # Physical dimensions (Length x Width x Thickness)
+        # Kích thước vật lý (Dài x Rộng x Dày)
         raw_dim = prod.get("dimensions") or specs_dict.get("Kich thuoc")
         dimensions = self.extract_dimensions(raw_dim)
 
@@ -97,46 +97,46 @@ class DataFormatter:
         camera_secondary = prod.get("camera_secondary") or specs_dict.get("Camera truoc") or specs_dict.get("laptop_camera_webcam") or None
         camera_video = prod.get("camera_video") 
 
-        # Audio technology (currently only for laptops)
+        # Công nghệ âm thanh (hiện tại chủ yếu cho laptop)
         audio = specs_dict.get("laptop_cong_nghe_am_thanh") or specs_dict.get("audio") or None
 
-        # Bluetooth
+        # Kết nối Bluetooth
         bluetooth = specs_dict.get("Bluetooth") or None
 
-        # Included accessories
+        # Phụ kiện đi kèm
         included_accessories = prod.get("included_accessories") or specs_dict.get("included_accessories") or None
         
-        # Product condition (for laptops first)
+        # Tình trạng sản phẩm (ưu tiên laptop)
         product_state = specs_dict.get("product_state") or None
 
-        # Product key selling points
+        # Đặc điểm nổi bật sản phẩm
         key_selling_points = prod.get("key_selling_points") or None
 
 
-        # ---------------- Laptop-specific fields
-        # Get keyboard backlight type
+        # ---------------- Các trường thông số riêng cho Laptop
+        # Loại đèn bàn phím
         keyboard_backlight = specs_dict.get("laptop_loai_den_ban_phim") or None
-        # NPU (Neural Processing Unit)
+        # Bộ xử lý AI (NPU)
         npu = specs_dict.get("npu") or None
-        # Wi-Fi
+        # Kết nối Wi-Fi
         wlan = specs_dict.get("wlan") or prod.get("wlan") or None
-        # Connection ports
+        # Cổng kết nối & khe cắm
         ports_slots = specs_dict.get("ports_slots") or None
-        # Security type
+        # Công nghệ bảo mật
         security = specs_dict.get("laptop_bao_mat") or None
-        # Device material
+        # Chất liệu vỏ máy
         material = specs_dict.get("laptop_chat_lieu") or None
-        # RAM slots
+        # Số khe RAM
         ram_slots = specs_dict.get("laptop_so_khe_ram") or None
-        # RAM type
+        # Chuẩn/loại RAM
         ram_type = specs_dict.get("laptop_loai_ram") or None
-        # Memory card reader
+        # Khe đọc thẻ nhớ
         card_reader = specs_dict.get("laptop_khe_doc_the_nho") or None
-        # Special features
+        # Tính năng đặc biệt
         laptop_special_feature = specs_dict.get("laptop_special_feature") or None
-        # Supported AI features
+        # Tiêu chuẩn/tính năng AI hỗ trợ
         ai_standard = specs_dict.get("laptop_cong_nghe_ai_filter") or None
-        # Get recommended usage/tasks
+        # Nhu cầu và tác vụ sử dụng đề xuất
         usage_overall = specs_dict.get("nhu_cau_su_dung") or None
         usage_detail = specs_dict.get("laptop_filter_tac_vu_su_dung") or None
         if usage_overall and usage_detail:
@@ -146,10 +146,10 @@ class DataFormatter:
         else:
             recommended_usage = usage_detail or None
 
-        # === 4. Combine all into a structured text block ===
+        # === 4. Hợp nhất tất cả thành khối văn bản có cấu trúc ===
         specs_lines = []
         
-        # Group common specs for both laptops and phones
+        # Nhóm các thông số chung cho cả laptop và điện thoại
         if cpu: specs_lines.append(f"- Bộ vi xử lý (CPU/Chipset): {cpu}")
         if ram: specs_lines.append(f"- Dung lượng RAM: {ram}")
         if ram_type: specs_lines.append(f"- Chuẩn/Loại RAM: {ram_type}")
@@ -165,14 +165,14 @@ class DataFormatter:
         if os: specs_lines.append(f"- Hệ điều hành: {os}")
         if weight: specs_lines.append(f"- Trọng lượng: {weight}")
         
-        # Format dimensions if it is a tuple from extract_dimensions
+        # Định dạng kích thước nếu là tuple từ extract_dimensions
         if dimensions:
             if isinstance(dimensions, (tuple, list)) and len(dimensions) >= 3:
                 specs_lines.append(f"- Kích thước thiết bị: {dimensions[0]} x {dimensions[1]} x {dimensions[2]} mm")
             else:
                 specs_lines.append(f"- Kích thước thiết bị: {dimensions}")
                 
-        # Clean newline characters (\n) from Camera, Accessories, and Ports for seamless text embedding
+        # Làm sạch ký tự xuống dòng (\n) trong Camera, Phụ kiện và Cổng kết nối để nạp embedding liền mạch
         if camera_primary: 
             specs_lines.append(f"- Camera chính (sau): {str(camera_primary).replace('\n', ', ')}")
         if camera_secondary: 
@@ -210,7 +210,7 @@ class DataFormatter:
 
         specs_text = "\n".join(specs_lines)
 
-        # Combine into large text paragraphs
+        # Hợp thành các đoạn văn bản lớn
         unified_text_parts = [
             f"Sản phẩm: {name}",
             f"Thương hiệu: {brand} | Danh mục: {category}"

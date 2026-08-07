@@ -3,23 +3,23 @@ from typing import Dict, Any, List
 
 
 class ChunkingDocuments:
-    """Class for chunking documents using RecursiveCharacterTextSplitter"""
+    """Lớp thực hiện chia nhỏ (chunking) tài liệu sử dụng RecursiveCharacterTextSplitter"""
     
     def __init__(self, config):
         """
-        Initialize chunker with configuration.
+        Khởi tạo bộ phân tách tài liệu với cấu hình được truyền vào.
         
         Args:
-            config: Configuration object with chunk_size and chunk_overlap attributes
+            config: Đối tượng cấu hình chứa các thuộc tính chunk_size và chunk_overlap
         """
         self.config = config
 
     def build_splitter(self):
         """
-        Build and return a RecursiveCharacterTextSplitter instance.
+        Khởi tạo và trả về một instance của RecursiveCharacterTextSplitter.
         
         Returns:
-            RecursiveCharacterTextSplitter configured with chunk_size, chunk_overlap, and separators
+            RecursiveCharacterTextSplitter được cấu hình các thuộc tính chunk_size, chunk_overlap và các dấu phân cách (separators)
         """
         return RecursiveCharacterTextSplitter(
             chunk_size=self.config.chunk_size,
@@ -29,26 +29,26 @@ class ChunkingDocuments:
 
     def chunk_policy(self, doc: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Chunk a single policy/product document.
+        Phân tách một tài liệu chính sách/sản phẩm đơn lẻ thành các đoạn nhỏ (chunks).
         
         Args:
-            doc: Dictionary containing document with 'title' and 'content' keys
+            doc: Dictionary chứa tài liệu với các khóa 'title' và 'content'
             
         Returns:
-            List of chunked documents with id, document content, and metadata
+            Danh sách các đoạn nhỏ đã chia kèm theo id, nội dung document và metadata
         """
         policy_chunks = []
         
-        # 1. Initialize splitter
+        # 1. Khởi tạo bộ phân tách text
         splitter = self.build_splitter()
         
-        # 2. Combine title and content to preserve context before chunking
+        # 2. Kết hợp tiêu đề và nội dung để bảo toàn ngữ cảnh trước khi phân tách
         doc_text = f"Tài liệu chính sách: {doc['title']}\nNội dung chi tiết:\n{doc['content']}"
         
-        # 3. Use split_text on raw text string
+        # 3. Sử dụng split_text trên chuỗi văn bản thô
         chunks = splitter.split_text(doc_text)
 
-        # 4. Package chunk list
+        # 4. Đóng gói danh sách các đoạn nhỏ (chunks)
         for i, chunk_content in enumerate(chunks):
             policy_chunks.append({
                 "id": f"policy_{doc['id']}_chunk_{i}",  
@@ -64,13 +64,13 @@ class ChunkingDocuments:
 
     def chunk_multiple_policies(self, docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Chunk multiple policy/product documents at once.
+        Phân tách hàng loạt nhiều tài liệu chính sách/sản phẩm cùng lúc.
         
         Args:
-            docs: List of document dictionaries
+            docs: Danh sách các dictionary tài liệu
             
         Returns:
-            List of all chunked documents from all input documents
+            Danh sách tổng hợp toàn bộ các đoạn nhỏ thu được từ tất cả tài liệu đầu vào
         """
         all_chunks = []
         for doc in docs:
