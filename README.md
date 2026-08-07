@@ -1,108 +1,88 @@
-# Agentic RAG cho Thương Mại Điện Tử (E-commerce Agentic RAG)
+# 🛍️ Agentic RAG cho Thương Mại Điện Tử
 
-Hệ thống RAG thông minh (Agentic RAG) hỗ trợ tư vấn bán hàng, tra cứu sản phẩm điện tử, kiểm tra tồn kho theo thời gian thực và quản lý hội thoại đa lượt sử dụng **LangGraph Orchestration** kết hợp với **Custom Pure Python ReAct Agent**.
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph-orange.svg?logo=langchain&logoColor=white)](https://www.langchain.com/langgraph)
+[![Next.js 15](https://img.shields.io/badge/Frontend-Next.js%2015-black.svg?logo=next.js&logoColor=white)](https://nextjs.org/)
+[![Supabase](https://img.shields.io/badge/Database-Supabase-emerald.svg?logo=supabase&logoColor=white)](https://supabase.com/)
+[![ChromaDB](https://img.shields.io/badge/VectorDB-ChromaDB-purple.svg)](https://www.trychroma.com/)
+[![OpenRouter](https://img.shields.io/badge/LLM%20%26%20Embed-OpenRouter-red.svg)](https://openrouter.ai/)
 
----
-
-## 🌟 Tính Năng Nổi Bật (Key Features)
-
-- 🛡️ **Hệ Thống An Ninh & Guardrail Phân Loại 3 Cấp (Security Guardrail)**:
-  - Phân loại câu hỏi thành `safe`, `needs_ticket`, hoặc `attack` (Prompt Injection / Roleplay Jailbreak).
-  - Tự động chuyển hướng câu tấn công sang `rejection_node` để phát cảnh báo UI Popup và ngắt luồng xấu.
-- 🤖 **Custom ReAct Master Agent (Viết Tay 100%)**:
-  - Tự động suy luận nhiều lượt (Multi-turn ReAct Loop), gọi các Tools phù hợp (`product_search`, `check_stock`, `product_details`).
-  - Hỗ trợ trích xuất thuộc tính suy luận mở rộng (như Gemini `thought_signature`).
-- ⚡ **Kiến Trúc Hybrid RAG (Vector Search + SQL Real-time)**:
-  - Vector DB (ChromaDB + Cohere Reranker) chuyên trách tra cứu dữ liệu thuộc tính tĩnh của sản phẩm.
-  - Supabase SQL chuyên trách kiểm tra thông tin Giá & Tồn kho thực tế (Real-time Stock) tránh sai lệch tồn kho.
-- 📜 **Lưu Trữ Lịch Sử Chat Đa Lượt (LangGraph Checkpointing)**:
-  - Tận dụng `MemorySaver` quản lý State hội thoại theo `thread_id` (session_id).
-  - Tương thích 100% cả Python Dict và LangChain Message Objects (`HumanMessage`, `AIMessage`).
-- 📊 **Thống Kê Chỉ Số Hiệu Năng Chi Tiết (Detailed Metrics)**:
-  - Theo dõi Thời gian phản hồi chữ đầu tiên (TTFT - Time To First Token).
-  - Tổng số Token tiêu thụ (`input_tokens`, `output_tokens`, `total_tokens`) và Tổng độ trễ (`latency`) theo từng lượt và toàn phiên.
+Hệ thống RAG thông minh (Agentic RAG) hỗ trợ tư vấn bán hàng, tra cứu thông tin sản phẩm, kiểm tra giá và tồn kho theo thời gian thực, cùng khả năng quản lý hội thoại đa lượt. Hệ thống kết hợp khả năng điều phối Agent, mô hình suy luận ReAct, cơ sở dữ liệu Vector Search và hệ quản trị cơ sở dữ liệu quan hệ SQL.
 
 ---
 
-## 🏗️ Kiến Trúc Hệ Thống (Architecture Overview)
+## 🌟 Tính Năng Nổi Bật
 
-```mermaid
-graph TD
-    User([Khách hàng]) --> GuardrailNode[Guardrail Router Node]
-    GuardrailNode -->|Rủi ro: attack| RejectionNode[Rejection Node - Trả lời lịch sự & Bật Popup UI]
-    GuardrailNode -->|An toàn: safe / needs_ticket| MasterNode[Master Agent Node]
-    
-    MasterNode -->|Gọi Tool Semantic| VectorDB[(ChromaDB + Cohere Reranker)]
-    MasterNode -->|Gọi Tool Realtime| Supabase[(Supabase SQL Database)]
-    
-    RejectionNode --> State[AgentState & MemorySaver]
-    MasterNode --> State
-    State --> Output([Câu trả lời & Báo cáo Thống kê])
-```
+- 🛡️ **An Ninh & Guardrail Phân Loại 3 Cấp**:
+  - Phân loại yêu cầu người dùng thành an toàn, cần tạo yêu cầu hỗ trợ, hoặc các hành vi tấn công (Prompt Injection / Roleplay Jailbreak).
+  - Tự động chuyển hướng các truy vấn vi phạm sang luồng xử lý từ chối và kích hoạt cảnh báo giao diện.
+- 🤖 **Agent Suy Luận Đa Lượt (Multi-turn ReAct Agent)**:
+  - Tự động phân tích nhu cầu người dùng qua nhiều lượt hội thoại, chủ động gọi các công cụ truy xuất thích hợp.
+  - Lưu trữ và quản lý trạng thái hội thoại liên tục qua từng phiên làm việc.
+- ⚡ **Kiến Trúc Truy Xuất Kết Hợp (Hybrid RAG)**:
+  - Vector Search: Tra cứu tìm kiếm ngữ nghĩa đối với thuộc tính sản phẩm và văn bản chính sách.
+  - SQL Search: Lọc điều kiện cứng theo khoảng giá, thương hiệu, danh mục và tra cứu tồn kho thực tế.
+- 🛠️ **Bộ Công Cụ Nghiệp Vụ Chuyên Sâu**:
+  - Tìm kiếm sản phẩm theo thứ tự phù hợp hoặc gom nhóm theo từng dòng máy/series.
+  - So sánh thông số kỹ thuật và giá cả trực quan giữa các sản phẩm.
+  - Tra cứu chính sách bảo hành, đổi trả, giao hàng và thông tin đơn hàng.
 
 ---
 
-## 📁 Cấu Trúc Thư Mục (Project Structure)
+## 🏗️ Kiến Trúc Luồng Xử Lý
 
 ```text
-Agenttic-RAG-for-e-commerce/
-├── database/                   # Lưu trữ SQLite & Vector DB cục bộ (ChromaDB)
-├── ke-hoach-agentic-rag-tmdt.md # Kế hoạch tổng thể dự án
-├── agent_graph_architecture.md # Tài liệu chi tiết thiết kế Agent & Graph
-├── rag-service/
-│   ├── configs/                # Quản lý cấu hình YAML & AppConfig
-│   ├── notebooks/              # Chuỗi Notebook thử nghiệm & Benchmark
-│   │   ├── 01_eda_data.ipynb
-│   │   ├── 02_load_cleaner_chunker.ipynb  # Ingestion & Re-index Vector DB
-│   │   ├── 03_test_retrieval.ipynb
-│   │   ├── 04_test_LLMService.ipynb
-│   │   ├── 05_test_tools_agent.ipynb       # Kiểm thử hệ thống Tools
-│   │   ├── 06_test_agent.ipynb             # Benchmark Security Guardrails
-│   │   ├── 07_01_workflow1.ipynb           # Test Workflow 1 & Stateful Chat
-│   │   └── 08_benchmark.ipynb              # Đánh giá toàn diện
-│   └── src/
-│       ├── LLMService.py                   # Service kết nối Gemini / Groq (Chuẩn hóa Msg)
-│       ├── a_ingestion/                    # Loader, Cleaner & Text Formatter
-│       ├── b_indexing/                     # ChromaDB Vector DB, Embedding & Rerank
-│       ├── c_retrieval/                    # ProductRetriever & PolicyRetriever
-│       ├── d_tools/                        # ReAct Tools (product_search, check_stock, product_details)
-│       ├── e_agents/                       # Custom Agents (GuardrailCall, MasterAgent, RejectionCall)
-│       ├── f_prompts/                      # Module quản lý System & Few-shot Prompts
-│       └── g_pipelines/                    # LangGraph Workflows (Workflow 1 & Workflow 2)
-└── README.md
+[👤 Khách hàng / Web UI] 
+          │
+          ▼
+[🛡️ Guardrail Router] ───(Phát hiện tấn công)──=> [🚫 Luồng Từ Chối & Cảnh Báo UI]
+          │
+    (An toàn)
+          │
+          ▼
+[🤖 Master ReAct Agent] <===> [🛠️ Bộ Công Cụ Truy Xuất & Tra Cứu]
+          │                                         │
+          │                                         ├──=> [🔮 Vector DB: Tra cứu ngữ nghĩa & chính sách]
+          │                                         │
+          │                                         └──=> [🗄️ SQL DB: Lọc cứng giá, tồn kho thời gian thực]
+          ▼
+[🧠 Trạng Thái Hội Thoại / Memory State]
+          │
+          ▼
+[💬 Phản Hồi Người Dùng & Thống Kê Hiệu Năng]
 ```
 
 ---
 
-## 🚀 Hướng Dẫn Chạy Thử (Quick Start)
+## 🚀 Hướng Dẫn Khởi Chạy
 
-### 1. Cài đặt môi trường Conda
+### 1. 🐍 Cài đặt môi trường Python
 
 ```bash
-conda activate DL
+# Kích hoạt môi trường của bạn
+conda activate your_env_name
+
+# Cài đặt các thư viện phụ thuộc
+pip install -r requirements.txt
 ```
 
-### 2. Khởi tạo cấu hình `.env`
+### 2. 🔑 Cấu hình biến môi trường
 
-Tạo file `rag-service/.env` với các API keys:
+Tạo tệp cấu hình `.env` với các khóa API cần thiết:
 
 ```env
-GEMINI_API_KEY=your_gemini_api_key
-GROQ_API_KEY=your_groq_api_key
-COHERE_API_KEY=your_cohere_api_key
 SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_key
+OPENROUTER_API_KEY=your_openrouter_key
+GROQ_API_KEY=your_groq_key
+GEMINI_API_KEY=your_gemini_key
 ```
 
-### 3. Chạy thử nghiệm Workflow trong Notebook
+### 3. 💻 Khởi chạy Giao diện Người dùng
 
-Mở notebook `rag-service/notebooks/07_01_workflow1.ipynb` và thực thi các Cell để khởi tạo LangGraph Workflow 1 và chat thử nghiệm đa lượt với Bot!
+```bash
+npm install
+npm run dev
+```
 
----
-
-## 🛠️ Công Nghệ Sử Dụng (Tech Stack)
-
-- **Language & Core**: Python 3.11+, LangGraph, LangChain Core (Message Types).
-- **LLM Providers**: Google Gemini API (`google.genai`), Groq API (`openai/gpt-oss-120b`).
-- **RAG & Vector Search**: ChromaDB, Cohere Rerank API.
-- **Database**: Supabase (PostgreSQL).
+Truy cập giao diện tại địa chỉ: `http://localhost:3000`
