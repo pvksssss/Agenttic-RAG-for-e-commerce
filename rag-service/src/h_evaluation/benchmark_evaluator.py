@@ -530,14 +530,25 @@ class JudgeLLM:
         raise RuntimeError(f"Judge failed after {self.max_retries} attempts")
 
     def score(self, question: str, answer: str, contexts: List[str], ground_truth: str, is_multiturn: bool = False) -> Dict[str, Any]:
-        # Tránh vượt quota/context với model Groq/Gemma
-        max_ctx_per_item = 2500
+        # Không cắt context theo từng item nữa (gây judge "mù" → kết tội bịa đặt oan).
+        # Chỉ giữ 1 safety cap tổng để chống pathological case vượt cửa sổ model (~128K token).
+        max_ctx_total_chars = 120000
         max_gt_chars = 1200
         ctxs = [c for c in (contexts or []) if c]
-        # Giữ ngữ cảnh gần nhất, cắt bớt nếu quá dài
-        while len(ctxs) > 2:
-            ctxs.pop(0)
-        ctxs = [c[:max_ctx_per_item] + ("..." if len(c) > max_ctx_per_item else "") for c in ctxs]
+        total_len = sum(len(c) for c in ctxs)
+        if total_len > max_ctx_total_chars:
+            # Cắt từ các item CŨ nhất trước (cuối list), mỗi item giữ đầu+đuôi để không mất tên/giá sản phẩm
+            keep_head = max_ctx_total_chars // (len(ctxs) or 1)
+            trimmed = []
+            for c in reversed(ctxs):
+                if total_len <= max_ctx_total_chars:
+                    trimmed.append(c)
+                    continue
+                half = min(len(c), keep_head // 2)
+                c2 = c[:half] + "\n...[trimmed]...\n" + c[-half:] if len(c) > keep_head else c
+                total_len -= max(0, len(c) - len(c2))
+                trimmed.append(c2)
+            ctxs = list(reversed(trimmed))
         ctx = "\n---\n".join(ctxs) if ctxs else "(không có ngữ cảnh)"
         # Lưu bản gốc để so khớp chính xác, dùng bản cắt cho prompt
         original_ground_truth = ground_truth
@@ -554,10 +565,12 @@ Ngữ cảnh truy xuất:
 
 Rubric cho từng metric (chấm theo 3 mức: 0.0 / 0.5 / 1.0 hoặc giữa):
 
+QUY TẮC BẮT BUỘC: faithfulness/context_precision/context_recall CHỈ so với "Ngữ cảnh truy xuất" bên trên. Ground truth TUYỆT ĐỐI KHÔNG được dùng để đánh giá faithfulness — kể cả khi ground truth khác hoàn toàn với câu trả lời, đó chỉ là lỗi của answer_correctness. Một câu trả lời trích dẫn đúng mọi sản phẩm/giá/thông số có trong ngữ cảnh là faithfulness = 1.0 dù không khớp ground truth.
+
 Nếu ngữ cảnh trống và câu trả lời là từ chối/hỏi làm rõ, faithfulness = 1.0, context_precision = 1.0, context_recall = 1.0.
 Nếu ngữ cảnh chỉ chứa ít hơn số lượng sản phẩm/dòng người dùng yêu cầu, câu trả lời liệt kê đầy đủ các mục có trong ngữ cảnh và không bịa thêm vẫn được coi là trả lời đúng/đầy đủ (answer_relevancy = 1.0, context_precision = 1.0, context_recall = 1.0 nếu ground truth khớp).
 
-faithfulness — câu trả lời có bịa đặt thông tin không có trong ngữ cảnh không?
+faithfulness — câu trả lời có bịa đặt thông tin không có trong ngữ cảnh không? (CHỈ so với Ngữ cảnh truy xuất, KHÔNG so với ground truth)
   1.0: mọi thông tin trong câu trả lời đều có nguồn gốc rõ ràng từ ngữ cảnh
   0.5: phần lớn đúng, có 1-2 chi tiết nhỏ không có trong ngữ cảnh nhưng hợp lý
   0.0: câu trả lời bịa đặt hoặc mâu thuẫn với ngữ cảnh
@@ -1017,10 +1030,16 @@ class BenchmarkEvaluator:
             if "turns" in r and r["turns"]:
                 for i, turn in enumerate(r["turns"]):
                     is_last = i == len(r["turns"]) - 1
-                    # Use tool outputs of the current turn only; cumulative outputs are kept for audit.
-                    turn_contexts = [c for c in turn.get("tool_outputs", []) if c]
-                    if not turn_contexts:
+                    # Judge cho turn > 1 phải thấy TOÀN BỘ tool output từ các turn trước (memory)
+                    # để không kết tội "bịa" khi agent trả lời dựa trên lượt trước.
+                    if i > 0:
                         turn_contexts = [c for c in turn.get("cumulative_tool_outputs", []) if c]
+                        if not turn_contexts:
+                            turn_contexts = [c for c in turn.get("tool_outputs", []) if c]
+                    else:
+                        turn_contexts = [c for c in turn.get("tool_outputs", []) if c]
+                        if not turn_contexts:
+                            turn_contexts = [c for c in turn.get("cumulative_tool_outputs", []) if c]
                     gt = turn.get("ground_truth", {})
                     gt_str = gt.get("answer_summary", "") if isinstance(gt, dict) else str(gt)
                     eid = f"{r['id']}_turn{i+1}"

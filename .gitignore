@@ -29,6 +29,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
+
 
 # Environment files
 .env
@@ -62,5 +64,9 @@ pip-delete-this-directory.txt
 .idea/
 .project
 .settings/
-.vercel
+# Documentation
+docs/
+
+# IDE rules
+.clinerules/
 
