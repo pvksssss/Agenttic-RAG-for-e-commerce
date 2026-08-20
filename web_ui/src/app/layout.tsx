@@ -43,7 +43,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col bg-background text-foreground font-sans selection:bg-primary selection:text-primary-foreground transition-colors duration-200">
+      <body suppressHydrationWarning className="min-h-full flex flex-col bg-background text-foreground font-sans selection:bg-primary selection:text-primary-foreground transition-colors duration-200">
         <Suspense fallback={<div className="h-16 border-b border-border bg-card/50 animate-pulse" />}>
           <Header />
         </Suspense>

@@ -447,7 +447,7 @@ export default function ProductDetailPage() {
   });
 
   const displaySpecs = Array.from(specsMap.values()).map(
-    ({ originalKey, val }) => [originalKey, val]
+    ({ originalKey, val }): [string, any] => [originalKey, val]
   );
 
   // Kiểm tra xem một thuộc tính có khả dụng với các lựa chọn hiện tại hay không
