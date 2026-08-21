@@ -429,10 +429,21 @@ export default function AdminPage() {
           setProducts(FALLBACK_PRODUCTS);
         }
 
-        // Load Orders
-        const { data: orderData, error: orderErr } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
-        if (!orderErr && orderData) setOrders(orderData);
-        else setOrders(MOCK_ORDERS);
+        // Load Orders qua API admin (service role, bypass RLS) để thấy toàn bộ đơn hàng
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          if (!token) throw new Error('Không tìm thấy token phiên đăng nhập');
+          const orderRes = await fetch('/api/admin/orders', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const orderJson = await orderRes.json();
+          if (!orderRes.ok) throw new Error(orderJson.error || 'Lỗi tải đơn hàng');
+          setOrders(orderJson.orders || []);
+        } catch (orderErr) {
+          console.error('Lỗi tải đơn hàng:', orderErr);
+          setOrders(MOCK_ORDERS);
+        }
 
         // Load Support Tickets
         const { data: ticketData, error: ticketErr } = await supabase.from('support_tickets').select('*').order('created_at', { ascending: false });
@@ -564,12 +575,20 @@ export default function AdminPage() {
         return;
       }
 
-      const { error } = await supabase
-        .from('orders')
-        .update({ status: newStatus })
-        .eq('id', orderId);
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Hết phiên đăng nhập');
 
-      if (error) throw error;
+      const response = await fetch('/api/admin/orders', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ orderId, status: newStatus })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Cập nhật trạng thái thất bại');
 
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
       if (selectedOrder) setSelectedOrder((prev: any) => ({ ...prev, status: newStatus }));
